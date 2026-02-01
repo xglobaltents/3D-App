@@ -17,7 +17,7 @@ export const PATHS = {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type TentType = 'PremiumArchTent' | (string & {})
+export type TentType = 'PremiumArchTent' | 'RevolutionTent' | (string & {})
 export type TentVariant = '15m' | '20m' | (string & {})
 export type AccessoryCategory = 'doors' | 'windows' | 'hvac' | 'lighting' | 'flooring' | (string & {})
 

@@ -1,18 +1,20 @@
 import { Suspense, useState } from 'react'
 import { Engine, Scene } from 'react-babylonjs'
-import { Vector3, Color4 } from '@babylonjs/core'
+import { Color4 } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 
 import { SceneSetup } from './components/SceneSetup'
-import { PremiumArchTent15m } from './tents/PremiumArchTent/15m'
+import { BaseplatePreview } from './components/BaseplatePreview'
 import './App.css'
 
 function App() {
   const [numBays, setNumBays] = useState(3)
   const [showFrame, setShowFrame] = useState(true)
   const [showCovers, setShowCovers] = useState(true)
+  const [tentType, setTentType] = useState('PremiumArchTent')
 
   const tentLength = numBays * 5 // 5m per bay
+
 
   return (
     <div id="canvas-container">
@@ -20,19 +22,9 @@ function App() {
         <Scene clearColor={new Color4(0.04, 0.04, 0.04, 1)}>
           <SceneSetup />
 
-          {/* Tent with Z-up → Y-up rotation */}
-          <transformNode
-            name="tent-container"
-            rotation={new Vector3(-Math.PI / 2, 0, 0)}
-          >
-            <Suspense fallback={null}>
-              <PremiumArchTent15m
-                numBays={numBays}
-                showFrame={showFrame}
-                showCovers={showCovers}
-              />
-            </Suspense>
-          </transformNode>
+          <Suspense fallback={null}>
+            <BaseplatePreview enabled={tentType === 'PremiumArchTent' && showFrame} />
+          </Suspense>
         </Scene>
       </Engine>
 
@@ -42,12 +34,19 @@ function App() {
         <div className="subtitle">3D Tent Design System</div>
         
         <div className="specs">
-          <div><strong>Type:</strong> Premium Arch Tent</div>
+          <div><strong>Type:</strong> {tentType === 'PremiumArchTent' ? 'Premium Arch Tent' : 'Revolution Tent'}</div>
           <div><strong>Width:</strong> 15m</div>
           <div><strong>Length:</strong> {tentLength}m</div>
         </div>
 
         <hr />
+
+        <label>Tent Type</label>
+        <select value={tentType} onChange={(e) => setTentType(e.target.value)}>
+          <option value="PremiumArchTent">Premium Arch Tent</option>
+          <option value="RevolutionTent">Revolution Tent</option>
+        </select>
+
 
         <label>Number of Bays</label>
         <input
@@ -109,8 +108,8 @@ function App() {
 
       {/* Export Buttons */}
       <div id="export-buttons">
-        <button className="export-btn">📷 Screenshot</button>
-        <button className="export-btn primary">📤 Share</button>
+        <button className="export-btn">Screenshot</button>
+        <button className="export-btn primary">Share</button>
       </div>
     </div>
   )
