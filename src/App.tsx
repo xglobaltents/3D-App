@@ -1,9 +1,10 @@
 import { Suspense, useState } from 'react'
-import { Engine, Scene } from 'react-babylonjs'
+import { FallbackEngine, Scene } from 'react-babylonjs'
 import { Color4 } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 
 import { SceneSetup } from './components/SceneSetup'
+import { PerformanceStats } from './components/PerformanceStats'
 import { Baseplates } from './tents/PremiumArchTent/frame/Baseplates'
 import './App.css'
 
@@ -12,13 +13,18 @@ function App() {
   const [showFrame, setShowFrame] = useState(true)
   const [showCovers, setShowCovers] = useState(true)
   const [tentType, setTentType] = useState('PremiumArchTent')
+  const [showStats, setShowStats] = useState(false)
 
   const tentLength = numBays * 5 // 5m per bay
 
 
   return (
     <div id="canvas-container">
-      <Engine antialias adaptToDeviceRatio canvasId="babylon-canvas">
+      <FallbackEngine 
+        canvasId="babylon-canvas"
+        engineProps={{ antialias: true, adaptToDeviceRatio: true }}
+        webGPUEngineProps={{ webGPUEngineOptions: { antialias: true } }}
+      >
         <Scene clearColor={new Color4(0.04, 0.04, 0.04, 1)}>
           <SceneSetup />
 
@@ -26,7 +32,9 @@ function App() {
             <Baseplates enabled={tentType === 'PremiumArchTent' && showFrame} />
           </Suspense>
         </Scene>
-      </Engine>
+      </FallbackEngine>
+
+      {showStats && <PerformanceStats />}
 
       {/* Control Panel */}
       <div id="controls">
@@ -95,6 +103,15 @@ function App() {
         >
           Visit baitalnokhada.me →
         </a>
+
+        <hr />
+
+        <button 
+          className={`stats-toggle-btn ${showStats ? 'active' : ''}`}
+          onClick={() => setShowStats(!showStats)}
+        >
+          {showStats ? 'Hide Stats' : 'Show Stats'}
+        </button>
       </div>
 
       {/* View Buttons */}
