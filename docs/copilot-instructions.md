@@ -1,140 +1,91 @@
-# Copilot Guide
+# Copilot Instructions
 
-Instructions for AI assistants working on this codebase.
+3D Tent Configurator built with **React 19**, **Babylon.js 8**, and **react-babylonjs**. Uses Vite for builds.
 
----
-
-## Project Overview
-
-3D Tent Configurator built with:
-- **Vite** - Build tool
-- **React** - UI framework
-- **Babylon.js** - 3D engine
-- **react-babylonjs** - React bindings for Babylon.js
-- **TypeScript** - Type safety
-
----
-
-## Folder Structure
+## Architecture
 
 ```
-public/                    # Static assets (GLB files)
-├── tents/                 # Tent-specific 3D models
-│   └── {TentType}/{Variant}/frame/   → GLBs for that tent
-│   └── {TentType}/{Variant}/covers/  → GLBs for that tent
-└── accessories/           # Shared accessory 3D models
-    └── {category}/        → GLBs shared across all tents
+src/tents/{TentType}/{Variant}/     # Tent implementations
+├── specs.ts                        # Dimensions, profiles, path constants
+├── index.tsx                       # Main tent component (composes frame/covers)
+├── frame/*.tsx                     # Individual frame components
+└── covers/*.tsx                    # Cover components
 
-src/                       # Source code
-├── tents/                 # Tent implementations
-│   └── {TentType}/{Variant}/
-│       ├── specs.ts       # Dimensions, profiles, helpers
-│       ├── index.tsx      # Main tent component
-│       ├── frame/         # Frame components
-│       └── covers/        # Cover components
-├── lib/
-│   ├── accessories/       # Code-only or GLB-backed accessories
-│   ├── constants/         # Asset paths, shared constants
-│   └── utils/             # GLB loader, thin instances
-├── components/            # Shared scene components
-└── types/                 # TypeScript interfaces
-```
+src/lib/
+├── utils/GLBLoader.ts              # loadGLBMesh(), createThinInstances()
+├── constants/assetPaths.ts         # Path helpers: getFramePath(), getCoversPath()
+└── accessories/                    # Shared accessory components
 
----
-
-## GLB File Locations
-
-### Tent Parts (tent-specific)
+public/tents/{TentType}/{Variant}/  # GLB files (NOT in src/)
+├── frame/*.glb
+└── covers/*.glb
 ```
-public/tents/{TentType}/{Variant}/frame/{part}.glb
-public/tents/{TentType}/{Variant}/covers/{part}.glb
-```
-
-Example:
-```
-/tents/PremiumArchTent/15m/frame/baseplate.glb
-/tents/PremiumArchTent/15m/frame/connectors/outer-connector.glb
-/tents/PremiumArchTent/15m/covers/roof-panel.glb
-```
-
-### Accessories (shared across tents)
-```
-public/accessories/{category}/{accessory}.glb
-```
-
-Example:
-```
-/accessories/doors/single-door.glb
-/accessories/hvac/ac-unit.glb
-```
-
----
 
 ## Coordinate System
 
-- **Authoring:** Z-up (X=width, Y=length, Z=height)
-- **Display:** Y-up (Babylon.js default)
-- **Conversion:** `TentManager` applies `-Math.PI/2` rotation on X axis
-
----
-
-## Adding a New Tent
-
-1. Create folder: `src/tents/{TentType}/{Variant}/`
-2. Add `specs.ts` with dimensions
-3. Add `index.tsx` as main component
-4. Add frame components in `frame/`
-5. Add cover components in `covers/`
-6. Create GLB folders: `public/tents/{TentType}/{Variant}/frame/` and `covers/`
-
----
-
-## Adding a New Accessory
-
-### GLB-backed accessory
-1. Add GLB to `public/accessories/{category}/`
-2. Create component in `src/lib/accessories/{category}/`
-3. Use `loadGLB()` from `src/lib/utils/glbLoader.ts`
-
-### Code-only accessory
-1. Create component in `src/lib/accessories/{category}/`
-2. Build geometry with Babylon.js primitives
-
----
+- **Authoring**: Z-up (X=width, Y=length, Z=height) — all specs and positions use this
+- **Display**: Y-up (Babylon.js) — App.tsx applies `-Math.PI/2` X rotation to tent container
 
 ## Key Patterns
 
-### Loading GLB
-```typescript
-import { loadGLBMesh } from '@/lib/utils/glbLoader'
-
-const mesh = await loadGLBMesh(scene, '/tents/PremiumArchTent/15m/frame/', 'baseplate.glb')
-```
-
-### Thin Instances (GPU instancing)
-```typescript
-import { createThinInstances } from '@/lib/utils/glbLoader'
-
-createThinInstances(mesh, [
-  { position: new Vector3(0, 0, 0) },
-  { position: new Vector3(0, 5, 0) },
-  { position: new Vector3(0, 10, 0) },
-])
-```
-
-### Frame Component Pattern
-```typescript
+### Frame Component Structure
+```tsx
+// src/tents/PremiumArchTent/15m/frame/Baseplates.tsx
 export const Baseplates: FC<FrameComponentProps> = ({ numBays, specs }) => {
-  // Calculate positions based on numBays and specs
-  // Render placeholders OR load GLB with thin instances
+  // Calculate positions from specs, not hardcoded values
+  for (let bay = 0; bay <= numBays; bay++) {
+    const y = bay * specs.bayDistance  // Use specs
+  }
+  return <transformNode name="baseplates">...</transformNode>
 }
 ```
 
----
+### GLB Loading with Thin Instances (GPU Instancing)
+```tsx
+import { loadGLBMesh, createThinInstances } from '@/lib/utils/GLBLoader'
+import { FRAME_PATH } from '../specs'
 
-## DO NOT
+const mesh = await loadGLBMesh(scene, FRAME_PATH, 'baseplate.glb')
+createThinInstances(mesh, [
+  { position: new Vector3(-7.5, 0, 0) },
+  { position: new Vector3(7.5, 0, 0) },
+])
+```
 
-- ❌ Use Three.js patterns (InstancedMesh, etc.) - this is Babylon.js
-- ❌ Put GLB files in `src/` - they go in `public/`
-- ❌ Hardcode dimensions - use `specs.ts`
-- ❌ Create components without TypeScript types
+### Types (always use)
+- `TentSpecs` — tent dimensions/profiles
+- `FrameComponentProps` — `{ numBays, specs }`
+- `CoverComponentProps` — `{ numBays, tentLength, specs }`
+- `TentComponentProps` — `{ numBays, showFrame, showCovers, position }`
+
+## Commands
+
+```bash
+npm run dev      # Dev server (default port 5173)
+npm run build    # tsc + vite build → dist/
+npm run lint     # ESLint
+```
+
+## Rules
+
+1. **Use Babylon.js** — NOT Three.js. No `InstancedMesh`, no `useFrame()`, no drei
+2. **GLB files go in `public/`** — never in `src/`
+3. **Use `specs.ts` for dimensions** — no hardcoded measurements in components
+4. **Use thin instances for repeated geometry** — `createThinInstances()` not `.clone()`
+5. **Use `StandardMaterial` for frame** — `PBRMaterial` only for covers/reflective surfaces
+6. **Share materials** — don't create per-instance materials in loops
+
+## Adding a New Tent
+
+1. Create `src/tents/{TentType}/{Variant}/specs.ts` with `TentSpecs`
+2. Create `src/tents/{TentType}/{Variant}/index.tsx` composing frame/cover components
+3. Add frame components in `frame/` following `FrameComponentProps` pattern
+4. Create GLB folders: `public/tents/{TentType}/{Variant}/frame/` and `covers/`
+5. Reference [PremiumArchTent-15m-structure.md](PremiumArchTent-15m-structure.md) for build guide format
+
+## Performance Checklist
+
+- [ ] Thin instances for all repeated geometry (purlins, baseplates, etc.)
+- [ ] `mesh.freezeWorldMatrix()` for static meshes
+- [ ] Shared materials across instances
+- [ ] LOD levels for complex geometry: `mesh.addLODLevel(distance, simplifiedMesh)`
