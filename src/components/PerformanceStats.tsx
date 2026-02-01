@@ -1,6 +1,12 @@
 import { type FC, useEffect, useState, useRef } from 'react'
 import { Engine, SceneInstrumentation, WebGPUEngine } from '@babylonjs/core'
 
+interface MeshBreakdown {
+  name: string
+  triangles: number
+  vertices: number
+}
+
 interface Stats {
   fps: number
   frameTime: number
@@ -12,6 +18,7 @@ interface Stats {
   materials: number
   textures: number
   engineType: 'WebGPU' | 'WebGL' | 'Unknown'
+  meshBreakdown: MeshBreakdown[]
 }
 
 export const PerformanceStats: FC = () => {
@@ -26,7 +33,9 @@ export const PerformanceStats: FC = () => {
     materials: 0,
     textures: 0,
     engineType: 'Unknown',
+    meshBreakdown: [],
   })
+  const [showBreakdown, setShowBreakdown] = useState(false)
   const instrumentationRef = useRef<SceneInstrumentation | null>(null)
 
   useEffect(() => {
@@ -45,13 +54,48 @@ export const PerformanceStats: FC = () => {
         instrumentationRef.current.captureInterFrameTime = true
       }
 
-      // Calculate triangles from meshes
+      // Calculate triangles from meshes and build breakdown
       let totalTriangles = 0
+      const meshMap = new Map<string, { triangles: number; vertices: number }>()
+      
       for (const mesh of scene.meshes) {
         if (mesh.isEnabled() && mesh.isVisible && mesh.getTotalIndices) {
-          totalTriangles += Math.floor(mesh.getTotalIndices() / 3)
+          const triangles = Math.floor(mesh.getTotalIndices() / 3)
+          const vertices = mesh.getTotalVertices?.() ?? 0
+          totalTriangles += triangles
+          
+          // Group by parent name or mesh name (extract component name)
+          let componentName = mesh.name
+          
+          // Try to get a cleaner name from parent hierarchy
+          if (mesh.parent?.name && mesh.parent.name !== '__root__') {
+            componentName = mesh.parent.name
+          }
+          
+          // Clean up common prefixes
+          componentName = componentName
+            .replace(/^__root__\.?/, '')
+            .replace(/_primitive\d+$/, '')
+            .replace(/\.\d+$/, '')
+          
+          if (!componentName || componentName === '') {
+            componentName = mesh.name || 'Unnamed'
+          }
+          
+          const existing = meshMap.get(componentName)
+          if (existing) {
+            existing.triangles += triangles
+            existing.vertices += vertices
+          } else {
+            meshMap.set(componentName, { triangles, vertices })
+          }
         }
       }
+      
+      // Convert to array and sort by triangles descending
+      const breakdown: MeshBreakdown[] = Array.from(meshMap.entries())
+        .map(([name, data]) => ({ name, ...data }))
+        .sort((a, b) => b.triangles - a.triangles)
 
       // Detect engine type
       const isWebGPU = engine instanceof WebGPUEngine || engine.name === 'WebGPU'
@@ -67,6 +111,7 @@ export const PerformanceStats: FC = () => {
         materials: scene.materials.length,
         textures: scene.textures.length,
         engineType: isWebGPU ? 'WebGPU' : 'WebGL',
+        meshBreakdown: breakdown,
       })
     }
 
@@ -139,6 +184,36 @@ export const PerformanceStats: FC = () => {
           <span className="stat-value">{stats.textures}</span>
         </div>
       </div>
+
+      {/* Mesh Breakdown Section */}
+      {stats.meshBreakdown.length > 0 && (
+        <div className="breakdown-section">
+          <button 
+            className="breakdown-toggle"
+            onClick={() => setShowBreakdown(!showBreakdown)}
+          >
+            {showBreakdown ? '▼' : '▶'} Triangle Breakdown ({stats.meshBreakdown.length} components)
+          </button>
+          
+          {showBreakdown && (
+            <div className="breakdown-list">
+              {stats.meshBreakdown.map((mesh, i) => (
+                <div key={i} className="breakdown-item">
+                  <span className="breakdown-name" title={mesh.name}>
+                    {mesh.name.length > 20 ? mesh.name.slice(0, 20) + '...' : mesh.name}
+                  </span>
+                  <span className="breakdown-stats">
+                    <span className="breakdown-triangles">{mesh.triangles.toLocaleString()} △</span>
+                    <span className="breakdown-percent">
+                      {stats.triangles > 0 ? Math.round((mesh.triangles / stats.triangles) * 100) : 0}%
+                    </span>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
