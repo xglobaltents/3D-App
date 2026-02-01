@@ -10,7 +10,11 @@
     "preview": "vite preview"
   },
   "dependencies": {
+    "@babylonjs/core": "^8.49.6",
+    "@babylonjs/gui": "^8.49.6",
+    "@babylonjs/loaders": "^8.49.6",
     "react": "^19.2.0",
+    "react-babylonjs": "^3.2.5-beta.2",
     "react-dom": "^19.2.0"
   },
   "devDependencies": {

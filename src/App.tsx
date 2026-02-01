@@ -1,34 +1,62 @@
-import { useState } from 'react'
-import reactLogo from './assets/react.svg'
-import viteLogo from '/vite.svg'
+import { Vector3, Color3 } from '@babylonjs/core'
+import { Engine, Scene } from 'react-babylonjs'
 import './App.css'
 
 function App() {
-  const [count, setCount] = useState(0)
-
   return (
-    <>
-      <div>
-        <a href="https://vite.dev" target="_blank">
-          <img src={viteLogo} className="logo" alt="Vite logo" />
-        </a>
-        <a href="https://react.dev" target="_blank">
-          <img src={reactLogo} className="logo react" alt="React logo" />
-        </a>
-      </div>
-      <h1>Vite + React</h1>
-      <div className="card">
-        <button onClick={() => setCount((count) => count + 1)}>
-          count is {count}
-        </button>
-        <p>
-          Edit <code>src/App.tsx</code> and save to test HMR
-        </p>
-      </div>
-      <p className="read-the-docs">
-        Click on the Vite and React logos to learn more
-      </p>
-    </>
+    <div style={{ width: '100%', height: '100vh' }}>
+      <Engine antialias adaptToDeviceRatio canvasId="babylon-canvas">
+        <Scene>
+          <arcRotateCamera
+            name="camera1"
+            target={Vector3.Zero()}
+            alpha={Math.PI / 2}
+            beta={Math.PI / 4}
+            radius={8}
+          />
+          <hemisphericLight
+            name="light1"
+            intensity={0.7}
+            direction={Vector3.Up()}
+          />
+          <sphere
+            name="sphere1"
+            diameter={2}
+            segments={32}
+            position={new Vector3(-2, 1, 0)}
+          >
+            <standardMaterial
+              name="sphere-mat"
+              diffuseColor={Color3.Red()}
+              specularColor={Color3.Black()}
+            />
+          </sphere>
+          <box
+            name="box1"
+            size={2}
+            position={new Vector3(2, 1, 0)}
+          >
+            <standardMaterial
+              name="box-mat"
+              diffuseColor={Color3.Blue()}
+              specularColor={Color3.Black()}
+            />
+          </box>
+          <ground
+            name="ground1"
+            width={10}
+            height={10}
+            subdivisions={2}
+          >
+            <standardMaterial
+              name="ground-mat"
+              diffuseColor={Color3.Green()}
+              specularColor={Color3.Black()}
+            />
+          </ground>
+        </Scene>
+      </Engine>
+    </div>
   )
 }
 
