@@ -1,71 +1,656 @@
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
-html, body, #root {
-  width: 100%;
-  height: 100%;
-  overflow: hidden;
-}
-
-#babylon-canvas {
-  width: 100%;
-  height: 100%;
+#canvas-container {
+  width: 100vw;
+  height: 100vh;
+  /* Prevent touch gestures from interfering with OrbitControls */
   touch-action: none;
 }
 
-/* UI Panel */
-.ui-panel {
-  position: absolute;
-  top: 16px;
-  left: 16px;
-  background: rgba(255, 255, 255, 0.95);
-  border-radius: 8px;
-  padding: 16px;
-  min-width: 240px;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+#canvas-container canvas {
+  touch-action: none;
+}
+
+/* Control Panel - CPQ Style */
+#controls {
+  position: fixed;
+  top: 10px;
+  left: 10px;
   z-index: 100;
+  background: var(--bg-secondary);
+  padding: 16px;
+  border-radius: 12px;
+  color: var(--text-primary);
+  min-width: 220px;
+  width: 220px;
+  max-height: calc(100vh - 80px);
+  overflow-y: auto;
+  box-shadow: 0 4px 20px rgba(0,0,0,0.4);
+  border: 1px solid var(--border-color);
+  font-size: 13px;
+  contain: layout style;
 }
 
-.ui-panel h2 {
-  font-size: 14px;
+@media (max-width: 768px) {
+  #controls {
+    top: 60px;
+    bottom: auto;
+    left: 10px;
+    width: min(260px, 72vw);
+    min-width: 200px;
+    max-height: 45vh;
+    padding: 12px;
+    overflow-x: hidden;
+  }
+
+  #view-buttons {
+    top: 10px;
+    right: 10px;
+    max-width: 70vw;
+  }
+
+  .section-block {
+    padding-left: 4px;
+  }
+
+  #controls select,
+  #controls input[type="range"] {
+    padding: 10px 12px;
+  }
+}
+
+#controls h1 {
+  font-size: 1.1em;
   font-weight: 600;
-  margin-bottom: 12px;
-  color: #333;
-}
-
-.ui-panel label {
-  display: block;
-  font-size: 12px;
-  color: #666;
   margin-bottom: 4px;
-}
-
-.ui-panel input[type="number"] {
-  width: 100%;
-  padding: 8px;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 14px;
-  margin-bottom: 12px;
-}
-
-.checkbox-group {
+  color: var(--text-primary);
   display: flex;
   align-items: center;
+  gap: 6px;
+}
+
+#controls .subtitle {
+  font-size: 0.7em;
+  color: var(--text-secondary);
+  margin-bottom: 12px;
+}
+
+#controls .specs {
+  font-size: 0.75em;
+  color: var(--text-tertiary);
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-color);
+}
+
+#controls .specs div {
+  margin: 3px 0;
+}
+
+#controls .specs strong {
+  color: var(--text-primary);
+}
+
+#controls hr {
+  border: none;
+  border-top: 1px solid var(--border-color);
+  margin: 12px 0;
+}
+
+#controls label {
+  display: block;
+  font-size: 0.8em;
+  margin-bottom: 6px;
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+#controls select,
+#controls input[type="range"],
+#controls input[type="number"] {
+  width: 100%;
+  padding: 12px 14px;
+  margin-top: 8px;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  font-size: 1em;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+#controls select:hover,
+#controls input[type="range"]:hover,
+#controls input[type="number"]:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+}
+
+#controls select:focus,
+#controls input:focus {
+  outline: none;
+  border-color: var(--text-muted);
+}
+
+#controls .bay-display {
+  text-align: center;
+  font-size: 1.1em;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin: 8px 0;
+}
+
+#controls .length-display {
+  text-align: center;
+  font-size: 0.75em;
+  color: var(--text-secondary);
+}
+
+/* Toggle Groups - CPQ Style */
+.toggle-group {
+  display: flex;
   gap: 8px;
+  margin-top: 8px;
+}
+
+.toggle-btn {
+  flex: 1;
+  padding: 8px 10px;
+  border: 1px solid var(--border-color);
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.toggle-btn.active {
+  background: var(--bg-tertiary);
+  border-color: #4caf50;
+  color: var(--text-primary);
+}
+
+.toggle-btn:hover:not(.active) {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-secondary);
+}
+
+/* View Buttons - CPQ Style */
+#view-buttons {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  display: flex;
+  gap: 6px;
+  max-width: 320px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  -webkit-overflow-scrolling: touch;
+  padding: 4px;
+}
+
+#view-buttons::-webkit-scrollbar {
+  display: none;
+}
+
+.view-btn {
+  padding: 8px 14px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.view-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.view-btn.active {
+  background: var(--bg-secondary);
+  border-color: #4caf50;
+  color: var(--text-primary);
+}
+
+/* Section Blocks */
+.section-block {
+  margin-top: 6px;
+  padding: 6px 0 2px 0;
+  border-top: 1px solid #2f2f2f;
+}
+
+.section-header {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
   margin-bottom: 8px;
 }
 
-.checkbox-group input {
-  width: auto;
-  margin: 0;
+.section-title {
+  font-size: 0.8em;
+  color: #e6e6e6;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  position: relative;
+  padding-bottom: 4px;
 }
 
-.checkbox-group label {
-  margin: 0;
+.section-title::after {
+  content: '';
+  position: absolute;
+  left: 0;
+  bottom: 0;
+  width: 48px;
+  height: 2px;
+  background: var(--section-accent, #2f2f2f);
+  border-radius: 2px;
+}
+
+.section-header .toggle-btn {
+  width: 100%;
+}
+
+.section-block[data-accent="green"] { --section-accent: #4caf50; }
+.section-block[data-accent="orange"] { --section-accent: #ff9800; }
+.section-block[data-accent="red"] { --section-accent: #ef5350; }
+.section-block[data-accent="blue"] { --section-accent: #4fc3f7; }
+.section-block[data-accent="purple"] { --section-accent: #ab47bc; }
+.section-block[data-accent="teal"] { --section-accent: #26a69a; }
+.section-block[data-accent="yellow"] { --section-accent: #fbc02d; }
+.section-block[data-accent="pink"] { --section-accent: #ec407a; }
+
+.section-block[data-accent] .section-header .toggle-btn.active {
+  border-color: var(--section-accent);
+}
+
+/* Export Buttons - CPQ Style */
+#export-buttons {
+  position: fixed;
+  bottom: 10px;
+  left: 10px;
+  display: flex;
+  gap: 8px;
+}
+
+.export-btn {
+  padding: 10px 18px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border-color);
+  color: var(--text-secondary);
+  border-radius: 8px;
+  cursor: pointer;
   font-size: 13px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.export-btn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+  transform: translateY(-1px);
+}
+
+.export-btn:active {
+  transform: scale(0.98);
+}
+
+.export-btn.primary {
+  background: var(--bg-tertiary);
+  border-color: #4caf50;
+  color: var(--text-primary);
+}
+
+.export-btn.primary:hover {
+  background: var(--bg-hover);
+  border-color: #81c784;
+}
+
+.export-btn:disabled {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: not-allowed;
+  border-color: var(--border-color);
+  transform: none;
+}
+
+/* Hide export on mobile */
+@media (max-width: 768px) {
+  #export-buttons {
+    display: none !important;
+  }
+}
+
+/* Website Link - CPQ Style */
+.website-link {
+  display: block;
+  text-align: center;
+  color: var(--text-secondary);
+  text-decoration: none;
+  font-size: 0.8em;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  transition: all 0.2s ease;
+}
+
+.website-link:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+/* Scrollbar for controls */
+#controls::-webkit-scrollbar {
+  width: 6px;
+}
+
+#controls::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+#controls::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+#controls::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* Focus states for accessibility */
+button:focus-visible,
+select:focus-visible,
+input:focus-visible,
+a:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+/* Reduced motion preference */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ===== MOBILE RESPONSIVE STYLES ===== */
+
+/* Tablet - 1024px and below */
+@media (max-width: 1024px) {
+  #controls {
+    min-width: 200px;
+    padding: 12px;
+    font-size: 0.9em;
+  }
+  
+  #controls h1 {
+    font-size: 1em;
+  }
+  
+  .toggle-btn,
+  .view-btn,
+  .export-btn {
+    padding: 6px 10px;
+    font-size: 0.75em;
+  }
+}
+
+/* Mobile landscape and small tablets - 768px and below */
+@media (max-width: 768px) {
+  body {
+    touch-action: pan-x pan-y;
+    -webkit-touch-callout: none;
+    -webkit-user-select: none;
+    user-select: none;
+  }
+  
+  #canvas-container {
+    touch-action: none;
+  }
+  #canvas-container canvas {
+    touch-action: none;
+  }
+  
+  /* Collapsible bottom sheet control panel */
+  #controls {
+    position: fixed;
+    top: auto;
+    bottom: 0;
+    left: 10px;
+    right: 10px;
+    width: auto;
+    max-height: 280px;
+    min-width: unset;
+    border-radius: 16px 16px 0 0;
+    padding: 12px 16px;
+    z-index: 100;
+    overflow-y: auto;
+    font-size: 13px;
+    box-shadow: 0 -4px 20px rgba(0,0,0,0.5);
+  }
+  
+  /* Drag handle indicator */
+  #controls::before {
+    content: '';
+    display: block;
+    width: 40px;
+    height: 4px;
+    background: var(--border-hover);
+    border-radius: 2px;
+    margin: 0 auto 10px;
+  }
+  
+  #controls h1 {
+    font-size: 1.1em;
+    margin-bottom: 4px;
+    text-align: center;
+  }
+  
+  #controls .subtitle {
+    font-size: 0.75em;
+    margin-bottom: 8px;
+    text-align: center;
+  }
+  
+  #controls .specs {
+    font-size: 0.8em;
+    padding: 8px 10px;
+    margin-bottom: 10px;
+  }
+  
+  #controls hr {
+    margin: 10px 0;
+  }
+  
+  #controls label {
+    font-size: 0.85em;
+    margin-bottom: 4px;
+  }
+  
+  #controls select {
+    padding: 10px 12px;
+    font-size: 1em;
+  }
+  
+  /* View buttons - horizontal row at top left */
+  #view-buttons {
+    position: fixed;
+    top: 10px;
+    left: 10px;
+    right: auto;
+    bottom: auto;
+    flex-direction: row;
+    flex-wrap: nowrap;
+    gap: 4px;
+    max-width: none;
+    overflow-x: auto;
+  }
+  
+  .view-btn {
+    padding: 8px 12px;
+    font-size: 0.8em;
+    white-space: nowrap;
+  }
+  
+  /* Export buttons - floating top right on mobile */
+  #export-buttons {
+    position: fixed;
+    top: 10px;
+    right: 10px;
+    left: auto;
+    bottom: auto;
+    flex-direction: row;
+    gap: 4px;
+  }
+  
+  .export-btn {
+    padding: 6px 10px;
+    font-size: 0.7em;
+    white-space: nowrap;
+  }
+  
+  /* Toggle groups - better spacing */
+  .toggle-group {
+    flex-wrap: wrap;
+    gap: 6px;
+    margin-top: 6px;
+  }
+  
+  .toggle-btn {
+    flex: 1 1 45%;
+    min-width: 70px;
+    padding: 10px 8px;
+    font-size: 0.85em;
+  }
+  
+  /* Bay controls */
+  #linearBayControls,
+  #gridBayControls {
+    padding: 6px 0;
+  }
+  
+  .bay-display {
+    font-size: 1.1em !important;
+    margin: 6px 0 !important;
+  }
+  
+  .length-display {
+    font-size: 0.85em !important;
+  }
+  
+  /* Select full width */
+  select {
+    width: 100%;
+  }
+  
+  /* Website link */
+  .website-link {
+    padding: 10px;
+    font-size: 0.85em;
+  }
+  
+  /* Hide less important elements on mobile */
+  #viewBack {
+    display: none;
+  }
+}
+
+/* Mobile portrait - 480px and below */
+@media (max-width: 480px) {
+  #controls {
+    left: 5px;
+    right: 5px;
+    max-height: 260px;
+    padding: 10px 12px;
+  }
+  
+  #controls h1 {
+    font-size: 1em;
+  }
+  
+  .toggle-btn {
+    flex: 1 1 45%;
+    padding: 8px 6px;
+    font-size: 0.8em;
+  }
+  
+  #view-buttons {
+    gap: 3px;
+  }
+  
+  .view-btn {
+    padding: 6px 10px;
+    font-size: 0.75em;
+  }
+  
+  #export-buttons {
+    top: 10px;
+    right: 10px;
+    gap: 3px;
+  }
+  
+  .export-btn {
+    padding: 5px 8px;
+    font-size: 0.65em;
+  }
+  
+  /* Hide less critical buttons */
+  #viewTop {
+    display: none;
+  }
+}
+
+/* Touch-friendly improvements */
+@media (hover: none) and (pointer: coarse) {
+  /* Touch targets - minimum 44px for iOS/Android guidelines */
+  .toggle-btn,
+  .view-btn,
+  .export-btn,
+  select {
+    min-height: 44px;
+  }
+  
+  /* Disable hover effects on touch devices */
+  .toggle-btn:hover,
+  .view-btn:hover,
+  .export-btn:hover {
+    background: inherit;
+  }
+  
+  .toggle-btn.active:hover {
+    background: var(--bg-tertiary);
+  }
+  
+  /* Active state feedback for touch */
+  .toggle-btn:active,
+  .view-btn:active,
+  .export-btn:active {
+    transform: scale(0.96);
+    opacity: 0.85;
+  }
+  
+  /* Prevent double-tap zoom */
+  * {
+    touch-action: manipulation;
+  }
 }

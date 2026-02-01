@@ -74,6 +74,7 @@ npm run lint     # ESLint
 4. **Use thin instances for repeated geometry** — `createThinInstances()` not `.clone()`
 5. **Use `StandardMaterial` for frame** — `PBRMaterial` only for covers/reflective surfaces
 6. **Share materials** — don't create per-instance materials in loops
+7. **No emojis in the app** — keep UI text clean without emoji characters
 
 ## Adding a New Tent
 
