@@ -1,61 +1,73 @@
-import { Vector3, Color3 } from '@babylonjs/core'
+import { Suspense, useState } from 'react'
 import { Engine, Scene } from 'react-babylonjs'
+import { Vector3, Color4 } from '@babylonjs/core'
+import '@babylonjs/loaders/glTF'
+
+import { SceneSetup } from './components/SceneSetup'
+import { PremiumArchTent15m } from './tents/PremiumArchTent/15m'
 import './App.css'
 
 function App() {
+  const [numBays, setNumBays] = useState(3)
+  const [showFrame, setShowFrame] = useState(true)
+  const [showCovers, setShowCovers] = useState(true)
+
   return (
-    <div style={{ width: '100%', height: '100vh' }}>
+    <div style={{ width: '100%', height: '100vh', position: 'relative' }}>
       <Engine antialias adaptToDeviceRatio canvasId="babylon-canvas">
-        <Scene>
-          <arcRotateCamera
-            name="camera1"
-            target={Vector3.Zero()}
-            alpha={Math.PI / 2}
-            beta={Math.PI / 4}
-            radius={8}
-          />
-          <hemisphericLight
-            name="light1"
-            intensity={0.7}
-            direction={Vector3.Up()}
-          />
-          <sphere
-            name="sphere1"
-            diameter={2}
-            segments={32}
-            position={new Vector3(-2, 1, 0)}
+        <Scene clearColor={new Color4(0.9, 0.9, 0.9, 1)}>
+          <SceneSetup />
+
+          {/* Tent with Z-up → Y-up rotation */}
+          <transformNode
+            name="tent-container"
+            rotation={new Vector3(-Math.PI / 2, 0, 0)}
           >
-            <standardMaterial
-              name="sphere-mat"
-              diffuseColor={Color3.Red()}
-              specularColor={Color3.Black()}
-            />
-          </sphere>
-          <box
-            name="box1"
-            size={2}
-            position={new Vector3(2, 1, 0)}
-          >
-            <standardMaterial
-              name="box-mat"
-              diffuseColor={Color3.Blue()}
-              specularColor={Color3.Black()}
-            />
-          </box>
-          <ground
-            name="ground1"
-            width={10}
-            height={10}
-            subdivisions={2}
-          >
-            <standardMaterial
-              name="ground-mat"
-              diffuseColor={Color3.Green()}
-              specularColor={Color3.Black()}
-            />
-          </ground>
+            <Suspense fallback={null}>
+              <PremiumArchTent15m
+                numBays={numBays}
+                showFrame={showFrame}
+                showCovers={showCovers}
+              />
+            </Suspense>
+          </transformNode>
         </Scene>
       </Engine>
+
+      {/* UI Panel */}
+      <div className="ui-panel">
+        <h2>Tent Configurator</h2>
+
+        <label htmlFor="num-bays">Number of Bays</label>
+        <input
+          id="num-bays"
+          type="number"
+          min={1}
+          max={20}
+          value={numBays}
+          onChange={(e) => setNumBays(Math.max(1, Math.min(20, parseInt(e.target.value) || 1)))}
+        />
+
+        <div className="checkbox-group">
+          <input
+            id="show-frame"
+            type="checkbox"
+            checked={showFrame}
+            onChange={(e) => setShowFrame(e.target.checked)}
+          />
+          <label htmlFor="show-frame">Show Frame</label>
+        </div>
+
+        <div className="checkbox-group">
+          <input
+            id="show-covers"
+            type="checkbox"
+            checked={showCovers}
+            onChange={(e) => setShowCovers(e.target.checked)}
+          />
+          <label htmlFor="show-covers">Show Covers</label>
+        </div>
+      </div>
     </div>
   )
 }
