@@ -1,4 +1,4 @@
-import { FC, useEffect } from 'react'
+import { type FC, useEffect } from 'react'
 import { useScene } from 'react-babylonjs'
 import { Vector3, Color3 } from '@babylonjs/core'
 
@@ -61,7 +61,7 @@ export const SceneSetup: FC = () => {
       <ground name="ground" width={100} height={100}>
         <standardMaterial
           name="ground-mat"
-          diffuseColor={new Color3(0.35, 0.55, 0.35)}
+          diffuseColor={new Color3(0.2, 0.2, 0.22)}
           specularColor={new Color3(0, 0, 0)}
         />
       </ground>

@@ -4,7 +4,7 @@ import { Color4 } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 
 import { SceneSetup } from './components/SceneSetup'
-import { BaseplatePreview } from './components/BaseplatePreview'
+import { Baseplates } from './tents/PremiumArchTent/frame/Baseplates'
 import './App.css'
 
 function App() {
@@ -23,7 +23,7 @@ function App() {
           <SceneSetup />
 
           <Suspense fallback={null}>
-            <BaseplatePreview enabled={tentType === 'PremiumArchTent' && showFrame} />
+            <Baseplates enabled={tentType === 'PremiumArchTent' && showFrame} />
           </Suspense>
         </Scene>
       </Engine>
