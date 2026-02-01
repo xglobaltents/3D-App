@@ -42,7 +42,12 @@ function App() {
         <div className="subtitle">3D Tent Design System</div>
         
         <div className="specs">
-          <div><strong>Type:</strong> {tentType === 'PremiumArchTent' ? 'Premium Arch Tent' : 'Revolution Tent'}</div>
+          <div><strong>Type:</strong> {
+            tentType === 'PremiumArchTent' ? 'Premium Arch Tent' :
+            tentType === 'RevolutionTent' ? 'Revolution Tent' :
+            tentType === 'PolygonTent' ? 'Polygon Tent' :
+            tentType === 'PyramidTent' ? 'Pyramid Tent' : tentType
+          }</div>
           <div><strong>Width:</strong> 15m</div>
           <div><strong>Length:</strong> {tentLength}m</div>
         </div>
@@ -53,6 +58,8 @@ function App() {
         <select value={tentType} onChange={(e) => setTentType(e.target.value)}>
           <option value="PremiumArchTent">Premium Arch Tent</option>
           <option value="RevolutionTent">Revolution Tent</option>
+          <option value="PolygonTent">Polygon Tent</option>
+          <option value="PyramidTent">Pyramid Tent</option>
         </select>
 
 
