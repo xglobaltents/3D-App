@@ -3,7 +3,7 @@ import { FallbackEngine, Scene } from 'react-babylonjs'
 import { Color4 } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 
-import { SceneSetup } from './components/SceneSetup'
+import { SceneSetup, type SkyPreset } from './components/SceneSetup'
 import { PerformanceStats } from './components/PerformanceStats'
 import { Baseplates } from './tents/PremiumArchTent/frame/Baseplates'
 import './App.css'
@@ -14,6 +14,7 @@ function App() {
   const [showCovers, setShowCovers] = useState(true)
   const [tentType, setTentType] = useState('PremiumArchTent')
   const [showStats, setShowStats] = useState(false)
+  const [skyPreset, setSkyPreset] = useState<SkyPreset>('default')
 
   const tentLength = numBays * 5 // 5m per bay
 
@@ -26,7 +27,7 @@ function App() {
         webGPUEngineProps={{ webGPUEngineOptions: { antialias: true } }}
       >
         <Scene clearColor={new Color4(0.04, 0.04, 0.04, 1)}>
-          <SceneSetup />
+          <SceneSetup skyPreset={skyPreset} />
 
           <Suspense fallback={null}>
             <Baseplates enabled={tentType === 'PremiumArchTent' && showFrame} />
@@ -110,6 +111,15 @@ function App() {
         >
           Visit baitalnokhada.me →
         </a>
+
+        <hr />
+
+        <label>Environment</label>
+        <select value={skyPreset} onChange={(e) => setSkyPreset(e.target.value as SkyPreset)}>
+          <option value="default">Day (Default)</option>
+          <option value="dark">Dark</option>
+          <option value="midnight">Midnight</option>
+        </select>
 
         <hr />
 

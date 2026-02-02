@@ -1,10 +1,24 @@
 import { type FC, useEffect } from 'react'
 import { useScene } from 'react-babylonjs'
-import { TransformNode, Mesh } from '@babylonjs/core'
+import { TransformNode, Mesh, PBRMaterial, Color3, Scene } from '@babylonjs/core'
 import { loadGLB } from '../../../lib/utils/GLBLoader'
 
 interface BaseplatesProps {
   enabled: boolean
+}
+
+// Shared aluminum material for baseplates
+let sharedAluminumMaterial: PBRMaterial | null = null
+
+function getAluminumMaterial(scene: Scene): PBRMaterial {
+  if (!sharedAluminumMaterial) {
+    sharedAluminumMaterial = new PBRMaterial('aluminum-baseplate', scene)
+    sharedAluminumMaterial.albedoColor = new Color3(0.91, 0.92, 0.92)  // Aluminum base color
+    sharedAluminumMaterial.metallic = 1.0       // Fully metallic
+    sharedAluminumMaterial.roughness = 0.35     // Slightly rough (brushed aluminum)
+    sharedAluminumMaterial.backFaceCulling = true
+  }
+  return sharedAluminumMaterial
 }
 
 export const Baseplates: FC<BaseplatesProps> = ({ enabled }) => {
@@ -14,11 +28,13 @@ export const Baseplates: FC<BaseplatesProps> = ({ enabled }) => {
     if (!scene || !enabled) return
 
     const root = new TransformNode('baseplates-root', scene)
-    // Lift to sit on ground level
     root.position.y = 0
 
     let disposed = false
     let meshes: Mesh[] = []
+
+    // Get shared material
+    const aluminumMat = getAluminumMaterial(scene)
 
     loadGLB(scene, '/tents/PremiumArchTent/frame/', 'basePlates.glb')
       .then((loaded) => {
@@ -28,6 +44,9 @@ export const Baseplates: FC<BaseplatesProps> = ({ enabled }) => {
         // Calculate bounding to lift mesh so bottom sits at ground level
         let minY = Infinity
         for (const mesh of meshes) {
+          // Remove GLB material, apply code-defined material
+          mesh.material = aluminumMat
+          
           mesh.refreshBoundingInfo()
           const bounds = mesh.getBoundingInfo().boundingBox
           const worldMin = bounds.minimumWorld.y
