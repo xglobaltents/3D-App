@@ -94,30 +94,45 @@ export const SceneSetup: FC<SceneSetupProps> = ({ skyPreset = 'default' }) => {
     skyDome.material = skyMaterial
     skyMaterialRef.current = skyMaterial
 
-    // Create brick pattern ground texture
+    // Create white ceramic square tile pattern (like reference image)
     const { ground } = SCENE_CONFIG
-    const brickWidth = 64   // pixels
-    const brickHeight = 32  // pixels (2:1 ratio for bricks)
+    const tileSize = 64     // pixels - square tiles
     const grout = ground.groutWidthPx
-    const textureSize = 256 // 4 bricks wide, 8 rows (covers running bond repeat)
+    const textureSize = 512 // 8x8 tiles for good variation
     const groundTexture = new DynamicTexture('ground-tile-texture', textureSize, scene, true)
     const ctx = groundTexture.getContext()
     
-    // Fill with grout/mortar color
+    // Fill with light gray grout color
     ctx.fillStyle = ground.colors.grout
     ctx.fillRect(0, 0, textureSize, textureSize)
     
-    // Draw running bond brick pattern (offset every other row)
-    ctx.fillStyle = ground.colors.tileBase
-    const rows = Math.ceil(textureSize / brickHeight)
-    const cols = Math.ceil(textureSize / brickWidth) + 1
+    // Tile color variations (subtle white/gray like ceramic tiles)
+    const tileColors = [
+      ground.colors.tileBase,
+      ground.colors.tileBase,
+      ground.colors.tileLight || ground.colors.tileBase,
+      ground.colors.tileMid || ground.colors.tileBase,
+      ground.colors.tileDark || ground.colors.tileBase,
+    ]
     
-    for (let row = 0; row < rows; row++) {
-      const offset = (row % 2) * (brickWidth / 2) // Offset every other row
-      for (let col = -1; col < cols; col++) {
-        const x = col * brickWidth + offset + grout
-        const y = row * brickHeight + grout
-        ctx.fillRect(x, y, brickWidth - grout * 2, brickHeight - grout * 2)
+    // Seeded random for consistent pattern
+    const seededRandom = (seed: number) => {
+      const x = Math.sin(seed * 12.9898 + 78.233) * 43758.5453
+      return x - Math.floor(x)
+    }
+    
+    // Draw square tile grid with subtle color variation
+    const tilesPerRow = Math.ceil(textureSize / tileSize)
+    
+    for (let row = 0; row < tilesPerRow; row++) {
+      for (let col = 0; col < tilesPerRow; col++) {
+        // Pick color with subtle variation
+        const colorIndex = Math.floor(seededRandom(row * 13 + col * 29) * tileColors.length)
+        ctx.fillStyle = tileColors[colorIndex]
+        
+        const x = col * tileSize + grout
+        const y = row * tileSize + grout
+        ctx.fillRect(x, y, tileSize - grout * 2, tileSize - grout * 2)
       }
     }
     groundTexture.update()

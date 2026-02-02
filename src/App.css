@@ -697,24 +697,49 @@ a:focus-visible {
 /* Performance Stats Panel */
 .performance-stats {
   position: fixed;
-  bottom: 20px;
-  left: 20px;
+  top: 50%;
+  right: 20px;
+  transform: translateY(-50%);
   background: var(--bg-secondary);
   border: 1px solid var(--border-color);
   border-radius: 12px;
   padding: 16px;
-  min-width: 280px;
+  min-width: 320px;
+  max-width: 400px;
   z-index: 100;
   box-shadow: 0 4px 20px rgba(0,0,0,0.4);
 }
 
+.stats-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 8px;
+}
+
 .performance-stats h3 {
-  margin: 0 0 8px 0;
+  margin: 0;
   font-size: 14px;
   font-weight: 600;
   color: var(--text-primary);
-  border-bottom: 1px solid var(--border-color);
-  padding-bottom: 8px;
+}
+
+.stats-close-btn {
+  background: transparent;
+  border: none;
+  color: var(--text-muted);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 4px;
+  transition: all 0.2s ease;
+}
+
+.stats-close-btn:hover {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
 }
 
 .engine-badge {
@@ -743,16 +768,18 @@ a:focus-visible {
   color: var(--text-muted);
 }
 
-.stats-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+.stats-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px 24px;
+  justify-content: flex-start;
 }
 
 .stat-item {
   display: flex;
   flex-direction: column;
   gap: 4px;
+  min-width: 70px;
 }
 
 .stat-label {
@@ -798,26 +825,28 @@ a:focus-visible {
 .stats-toggle-btn:hover {
   background: var(--bg-tertiary);
   color: var(--text-primary);
-  border-color: var(--accent-green);
+  border-color: var(--accent-blue);
 }
 
 .stats-toggle-btn.active {
-  background: var(--accent-green);
-  color: #000;
-  border-color: var(--accent-green);
+  background: var(--accent-blue);
+  color: #fff;
+  border-color: var(--accent-blue);
 }
 
 @media (max-width: 768px) {
   .performance-stats {
+    top: auto;
     bottom: 70px;
-    left: 10px;
     right: 10px;
+    left: 10px;
+    transform: none;
     min-width: auto;
+    max-width: none;
   }
   
-  .stats-grid {
-    grid-template-columns: repeat(3, 1fr);
-    gap: 8px;
+  .stats-row {
+    gap: 12px 16px;
   }
   
   .stat-value {

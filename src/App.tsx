@@ -35,7 +35,7 @@ function App() {
         </Scene>
       </FallbackEngine>
 
-      {showStats && <PerformanceStats />}
+      {showStats && <PerformanceStats onClose={() => setShowStats(false)} />}
 
       {/* Control Panel */}
       <div id="controls">

@@ -34,12 +34,15 @@ export const SCENE_CONFIG = {
   // Ground settings
   ground: {
     size: 600,              // Larger ground so side views don't show edges
-    tileRepeat: 150,        // Keep tile scale consistent (size / 4m per texture)
-    groutWidthPx: 1,        // Thin grout lines for subtle tile pattern
-    roughness: 0.8,
+    tileRepeat: 40,         // Moderate repeat for visible square tiles
+    groutWidthPx: 2,        // Thin light gray grout lines
+    roughness: 0.3,         // Smoother ceramic finish
     colors: {
-      grout: '#7a7067',     // Gray mortar
-      tileBase: '#a94a34',  // Classic red brick
+      grout: '#c0c8d0',     // Light bluish-gray grout
+      tileBase: '#f0f4f8',  // White with light blue tint
+      tileLight: '#f5f8fc', // Brighter bluish-white variant
+      tileMid: '#e8eef4',   // Slightly more blue variant
+      tileDark: '#dce4ec',  // Light blue-gray variant
     }
   },
 

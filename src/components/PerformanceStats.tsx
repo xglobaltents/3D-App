@@ -7,6 +7,10 @@ interface MeshBreakdown {
   vertices: number
 }
 
+interface PerformanceStatsProps {
+  onClose?: () => void
+}
+
 interface Stats {
   fps: number
   frameTime: number
@@ -21,7 +25,7 @@ interface Stats {
   meshBreakdown: MeshBreakdown[]
 }
 
-export const PerformanceStats: FC = () => {
+export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
   const [stats, setStats] = useState<Stats>({
     fps: 0,
     frameTime: 0,
@@ -130,13 +134,20 @@ export const PerformanceStats: FC = () => {
 
   return (
     <div className="performance-stats">
-      <h3>Performance Analytics</h3>
-      
-      <div className="engine-badge" data-engine={stats.engineType.toLowerCase()}>
-        {stats.engineType === 'WebGPU' ? '🚀' : '🎮'} {stats.engineType}
+      <div className="stats-header">
+        <h3>Performance Analytics</h3>
+        {onClose && (
+          <button className="stats-close-btn" onClick={onClose} title="Close">
+            ✕
+          </button>
+        )}
       </div>
       
-      <div className="stats-grid">
+      <div className="engine-badge" data-engine={stats.engineType.toLowerCase()}>
+        {stats.engineType}
+      </div>
+      
+      <div className="stats-row">
         <div className="stat-item">
           <span className="stat-label">FPS</span>
           <span className={`stat-value ${stats.fps < 30 ? 'warning' : stats.fps < 50 ? 'caution' : 'good'}`}>
