@@ -1,10 +1,23 @@
-import { Scene, SceneLoader, AbstractMesh, Mesh, Matrix, Vector3, Quaternion } from '@babylonjs/core'
+import { Scene, SceneLoader, AbstractMesh, Mesh, Matrix, Vector3, Quaternion, type Material } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
+
+// ─── GLB Asset Cache ─────────────────────────────────────────────────────────
+
+const glbCache = new Map<string, AbstractMesh[]>()
+
+/**
+ * Clear all cached GLB template meshes. Call on scene teardown.
+ */
+export function clearGLBCache(): void {
+  glbCache.clear()
+}
 
 // ─── GLB Loading ─────────────────────────────────────────────────────────────
 
 /**
- * Load a GLB model from path
+ * Load a GLB model from path. Results are cached by path so the same
+ * file is only fetched/parsed once; subsequent calls clone from the
+ * cached template meshes.
  * @param scene - Babylon scene
  * @param folder - Folder path (e.g., '/tents/PremiumArchTent/15m/frame/')
  * @param filename - GLB filename (e.g., 'baseplate.glb')
@@ -14,8 +27,38 @@ export async function loadGLB(
   folder: string,
   filename: string
 ): Promise<AbstractMesh[]> {
+  const key = folder + filename
+
+  const cached = glbCache.get(key)
+  if (cached) {
+    // Clone each cached template mesh into the current scene
+    return cached.map((m) => {
+      const clone = m.clone(m.name, null)
+      if (clone) {
+        clone.setEnabled(true)
+        return clone
+      }
+      return m
+    }).filter(Boolean) as AbstractMesh[]
+  }
+
   const result = await SceneLoader.ImportMeshAsync('', folder, filename, scene)
-  return result.meshes
+
+  // Store originals as hidden templates — callers get clones so
+  // disposing clones never poisons the cache.
+  for (const m of result.meshes) {
+    m.setEnabled(false)
+  }
+  glbCache.set(key, result.meshes)
+
+  return result.meshes.map((m) => {
+    const clone = m.clone(m.name, null)
+    if (clone) {
+      clone.setEnabled(true)
+      return clone
+    }
+    return m
+  }).filter(Boolean) as AbstractMesh[]
 }
 
 /**
@@ -92,4 +135,70 @@ export function addThinInstance(mesh: Mesh, transform: InstanceTransform): numbe
   )
 
   return mesh.thinInstanceAdd(matrix)
+}
+
+// ─── Material Helpers ────────────────────────────────────────────────────────
+
+/**
+ * Strip default GLB materials from loaded meshes and optionally
+ * apply a replacement material.
+ *
+ * Always call this on GLB-loaded meshes so that default embedded
+ * materials don't waste GPU memory or override code-defined looks.
+ */
+export function stripAndApplyMaterial(
+  meshes: AbstractMesh[],
+  material?: Material
+): void {
+  for (const mesh of meshes) {
+    if (mesh instanceof Mesh) {
+      // Dispose the GLB's embedded material + its textures
+      if (mesh.material) {
+        mesh.material.dispose(true, true)
+      }
+      if (material) {
+        mesh.material = material
+      }
+    }
+  }
+}
+
+// ─── Static Mesh Freeze Helpers ──────────────────────────────────────────────
+
+/**
+ * Freeze a mesh that will never move or deform at runtime.
+ * Eliminates per-frame world-matrix recalculation and normal-matrix
+ * recomputation — significant CPU savings on large frame assemblies.
+ */
+export function freezeStaticMesh(mesh: Mesh): void {
+  mesh.freezeWorldMatrix()
+  mesh.freezeNormals()
+}
+
+/**
+ * Freeze an array of meshes (convenience wrapper).
+ */
+export function freezeStaticMeshes(meshes: AbstractMesh[]): void {
+  for (const mesh of meshes) {
+    if (mesh instanceof Mesh) {
+      freezeStaticMesh(mesh)
+    }
+  }
+}
+
+/**
+ * Enhanced thin-instance creation with automatic freezing.
+ * After calling this, the mesh and its instances are fully static —
+ * world matrix, normals, and bounding info are all frozen.
+ */
+export function createFrozenThinInstances(
+  mesh: Mesh,
+  transforms: InstanceTransform[]
+): void {
+  createThinInstances(mesh, transforms)
+
+  // Freeze everything — thin instances are static geometry
+  mesh.freezeWorldMatrix()
+  mesh.freezeNormals()
+  mesh.doNotSyncBoundingInfo = true
 }

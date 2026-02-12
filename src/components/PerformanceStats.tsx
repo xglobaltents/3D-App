@@ -41,12 +41,15 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
   })
   const [showBreakdown, setShowBreakdown] = useState(false)
   const instrumentationRef = useRef<SceneInstrumentation | null>(null)
+  const prevMeshCountRef = useRef<number>(-1)
+  const cachedBreakdownRef = useRef<MeshBreakdown[]>([])
+  const cachedTrianglesRef = useRef<number>(0)
 
   useEffect(() => {
     const updateStats = () => {
       const engine = Engine.LastCreatedEngine
       if (!engine) return
-      
+
       const scene = engine.scenes[0]
       if (!scene) return
 
@@ -58,64 +61,71 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
         instrumentationRef.current.captureInterFrameTime = true
       }
 
-      // Calculate triangles from meshes and build breakdown
-      let totalTriangles = 0
-      const meshMap = new Map<string, { triangles: number; vertices: number }>()
-      
-      for (const mesh of scene.meshes) {
-        if (mesh.isEnabled() && mesh.isVisible && mesh.getTotalIndices) {
-          const triangles = Math.floor(mesh.getTotalIndices() / 3)
-          const vertices = mesh.getTotalVertices?.() ?? 0
-          totalTriangles += triangles
-          
-          // Group by parent name or mesh name (extract component name)
-          let componentName = mesh.name
-          
-          // Try to get a cleaner name from parent hierarchy
-          if (mesh.parent?.name && mesh.parent.name !== '__root__') {
-            componentName = mesh.parent.name
-          }
-          
-          // Clean up common prefixes
-          componentName = componentName
-            .replace(/^__root__\.?/, '')
-            .replace(/_primitive\d+$/, '')
-            .replace(/\.\d+$/, '')
-          
-          if (!componentName || componentName === '') {
-            componentName = mesh.name || 'Unnamed'
-          }
-          
-          const existing = meshMap.get(componentName)
-          if (existing) {
-            existing.triangles += triangles
-            existing.vertices += vertices
-          } else {
-            meshMap.set(componentName, { triangles, vertices })
+      // Only recalculate mesh breakdown when mesh count changes
+      const currentMeshCount = scene.meshes.length
+      if (currentMeshCount !== prevMeshCountRef.current) {
+        prevMeshCountRef.current = currentMeshCount
+        let totalTriangles = 0
+        const meshMap = new Map<string, { triangles: number; vertices: number }>()
+
+        for (const mesh of scene.meshes) {
+          if (mesh.isEnabled() && mesh.isVisible && mesh.getTotalIndices) {
+            const triangles = Math.floor(mesh.getTotalIndices() / 3)
+            const vertices = mesh.getTotalVertices?.() ?? 0
+            totalTriangles += triangles
+
+            // Group by parent name or mesh name (extract component name)
+            let componentName = mesh.name
+
+            // Try to get a cleaner name from parent hierarchy
+            if (mesh.parent?.name && mesh.parent.name !== '__root__') {
+              componentName = mesh.parent.name
+            }
+
+            // Clean up common prefixes
+            componentName = componentName
+              .replace(/^__root__\.?/, '')
+              .replace(/_primitive\d+$/, '')
+              .replace(/\.\d+$/, '')
+
+            if (!componentName || componentName === '') {
+              componentName = mesh.name || 'Unnamed'
+            }
+
+            const existing = meshMap.get(componentName)
+            if (existing) {
+              existing.triangles += triangles
+              existing.vertices += vertices
+            } else {
+              meshMap.set(componentName, { triangles, vertices })
+            }
           }
         }
+
+        cachedBreakdownRef.current = Array.from(meshMap.entries())
+          .map(([name, data]) => ({ name, ...data }))
+          .sort((a, b) => b.triangles - a.triangles)
+        cachedTrianglesRef.current = totalTriangles
       }
-      
-      // Convert to array and sort by triangles descending
-      const breakdown: MeshBreakdown[] = Array.from(meshMap.entries())
-        .map(([name, data]) => ({ name, ...data }))
-        .sort((a, b) => b.triangles - a.triangles)
 
       // Detect engine type
       const isWebGPU = engine instanceof WebGPUEngine || engine.name === 'WebGPU'
 
+      // drawCallsPerfCounter is an internal Babylon.js property (v8.x)
+      const drawCalls = (engine as unknown as { drawCallsPerfCounter?: { current: number } }).drawCallsPerfCounter?.current ?? 0
+
       setStats({
         fps: Math.round(engine.getFps()),
         frameTime: parseFloat(instrumentationRef.current.frameTimeCounter.lastSecAverage.toFixed(2)),
-        drawCalls: engine.drawCallsPerfCounter?.current ?? 0,
-        triangles: totalTriangles,
+        drawCalls,
+        triangles: cachedTrianglesRef.current,
         vertices: scene.getTotalVertices?.() ?? 0,
         activeMeshes: scene.getActiveMeshes?.().length ?? 0,
-        totalMeshes: scene.meshes.length,
+        totalMeshes: currentMeshCount,
         materials: scene.materials.length,
         textures: scene.textures.length,
         engineType: isWebGPU ? 'WebGPU' : 'WebGL',
-        meshBreakdown: breakdown,
+        meshBreakdown: cachedBreakdownRef.current,
       })
     }
 

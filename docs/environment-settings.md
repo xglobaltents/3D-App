@@ -1,126 +1,183 @@
 # Environment Settings
 
 Technical reference for the 3D scene environment configuration (Babylon.js).
+Three environment modes selectable via UI dropdown.
 
 ---
 
-## Ground Configuration
+## Environment Modes
 
-| Setting | Value | Notes |
-|---------|-------|-------|
-| Size | 600m × 600m | Large enough for side views |
-| Tile Repeat | 150 | ~4m per texture tile |
-| Grout Width | 1px | Thin, subtle tile pattern |
-
-### Ground Colors
-
-| Element | Hex | Notes |
-|---------|-----|-------|
-| Grout | `#8a5545` | Close to tile color, subtle |
-| Tile Base | `#914e3e` | Terracotta/brick red |
+| Preset | Description |
+|--------|-------------|
+| **Outdoor** (default) | Sky dome + terracotta tile ground + 4-light rig + ACES tone mapping |
+| **White Studio** | PBR ground + grid overlay + fog + IBL + 2-light rig |
+| **Black Studio** | Same as white studio with dark colours |
 
 ---
 
-## Sky Dome
+## Outdoor (Default) Preset
+
+### Sky Dome
 
 | Setting | Value |
 |---------|-------|
-| Diameter | 1200m (GROUND_SIZE × 2) |
+| Diameter | 1200m |
 | Segments | 32 |
 | Infinite Distance | true |
-| Rendering Group | 0 (renders first/behind) |
+| Rendering Group | 0 (behind everything) |
+| Shader | Custom GLSL gradient (horizon → zenith) |
 
-### Default Gradient Colors
-
-| Position | Color | Hex | Description |
-|----------|-------|-----|-------------|
-| Horizon | `Color3(0.77, 0.83, 0.88)` | `#c4d4e0` | Pale/hazy |
-| Low | `Color3(0.53, 0.81, 0.92)` | `#87CEEB` | Light blue |
-| Mid | `Color3(0.36, 0.64, 0.85)` | `#5BA3D9` | Medium blue |
-| Zenith | `Color3(0.29, 0.56, 0.76)` | `#4A90C2` | Deeper blue at top |
-
-### Sky Presets
-
-Select via UI dropdown in control panel.
-
-#### Dark Preset
+#### Gradient Colors
 
 | Position | Color | Hex |
 |----------|-------|-----|
-| All | `Color3(0.16, 0.17, 0.22)` | `#2A2C38` |
+| Horizon | `Color3(0.77, 0.83, 0.88)` | `#c4d4e0` |
+| Low | `Color3(0.53, 0.81, 0.92)` | `#87CEEB` |
+| Mid | `Color3(0.36, 0.64, 0.85)` | `#5BA3D9` |
+| Zenith | `Color3(0.29, 0.56, 0.76)` | `#4A90C2` |
 
-#### Midnight Preset
-
-| Position | Color | Hex |
-|----------|-------|-----|
-| All | `Color3(0.06, 0.06, 0.11)` | `#10101C` |
-
----
-
-## Lighting Setup (Babylon.js)
-
-### Hemispheric Light (Ambient)
-
-| Setting | Value |
-|---------|-------|
-| Direction | `Vector3(0, 1, 0)` |
-| Intensity | 0.8 |
-| Diffuse | `Color3(1, 1, 1)` |
-| Ground Color | `Color3(0.67, 0.67, 0.67)` |
-
-### Directional Light (Sun)
-
-| Setting | Value |
-|---------|-------|
-| Direction | `Vector3(-0.5, -0.87, -0.5)` normalized from `(-30, -50, -30)` |
-| Intensity | 1.5 |
-| Diffuse | `Color3(1, 1, 1)` |
-
-### Fill Light (Secondary Directional)
-
-| Setting | Value |
-|---------|-------|
-| Direction | `Vector3(0.5, -0.75, 0.5)` normalized from `(20, -30, 20)` |
-| Intensity | 0.8 |
-| Diffuse | `Color3(1, 1, 1)` |
-
-### Bottom Fill Light
-
-| Setting | Value |
-|---------|-------|
-| Direction | `Vector3(0, 1, 0)` (pointing up) |
-| Intensity | 0.3 |
-| Diffuse | `Color3(1, 1, 1)` |
-
----
-
-## Shadow Configuration (Babylon.js)
-
-### Shadow Generator
+### Terracotta Tile Ground
 
 | Setting | Value | Notes |
 |---------|-------|-------|
-| Map Size | 2048 | Desktop |
-| Map Size | 1024 | Mobile |
-| Use Blur | true | Soft shadows |
-| Blur Kernel | 32 | Shadow softness |
-| Bias | 0.00025 | Reduces shadow acne |
-| Normal Bias | 0.008 | Reduces peter-panning |
+| Size | 600m x 600m | Large enough for all views |
+| Tile Repeat | 150 | ~4m per tile |
+| Grout Width | 1px | Thin, subtle |
+| Material | `StandardMaterial` | `DynamicTexture` tiled pattern |
 
-### Shadow Light Frustum
+#### Ground Colors
+
+| Element | Hex |
+|---------|-----|
+| Grout | `#8a5545` |
+| Tile Base | `rgb(145, 78, 62)` (terracotta) |
+
+### 4-Light Rig
+
+| Light | Type | Intensity | Direction |
+|-------|------|-----------|-----------|
+| Hemispheric | `HemisphericLight` | 0.8 | `(0, 1, 0)` |
+| Sun | `DirectionalLight` | 1.5 | `(-30, -50, -30)` normalized |
+| Fill | `DirectionalLight` | 0.8 | `(20, -30, 20)` normalized |
+| Bottom | `DirectionalLight` | 0.3 | `(0, 1, 0)` (upward) |
+
+### Default Shadow Generator
 
 | Setting | Value |
 |---------|-------|
-| Shadow Min Z | 1 |
-| Shadow Max Z | 150 |
-| Ortho Left/Right | ±60 |
-| Ortho Top/Bottom | ±60 |
+| Blur Kernel | 32 |
+| Bias | -0.00025 |
+| Normal Bias | 0.008 |
+| Darkness | 0.4 |
+
+### Image Processing
+
+| Setting | Value |
+|---------|-------|
+| Tone Mapping | ACES (type 1) |
+| Exposure | 1.0 |
+| Contrast | 1.1 |
+
+### Scene Flags
+
+| Flag | Value | Reason |
+|------|-------|--------|
+| `autoClear` | false | Sky dome covers background |
+| `fogMode` | NONE | No fog in outdoor mode |
 
 ---
 
-## Camera Configuration
+## White Studio Preset
 
-### Arc Rotate Camera
+### PBR Ground
+
+| Setting | Value |
+|---------|-------|
+| Size | 200m x 200m |
+| Material | `PBRMaterial` |
+| Albedo Color | `Color3(0.85, 0.85, 0.85)` |
+| Metallic | 0.0 |
+| Roughness | 0.9 |
+| Environment Intensity | 0.4 |
+
+### Grid Overlay
+
+Uses `GridMaterial` from `@babylonjs/materials`.
+
+| Setting | Value |
+|---------|-------|
+| Y Offset | 0.001m |
+| Major Unit Frequency | 10 |
+| Minor Unit Visibility | 0.3 |
+| Grid Ratio | 1 |
+| Main Color | `Color3(0.85, 0.85, 0.85)` |
+| Line Color | `Color3(0.7, 0.7, 0.7)` |
+| Opacity | 0.6 |
+
+### Background & Fog
+
+| Setting | Value |
+|---------|-------|
+| Clear Color | `Color4(0.95, 0.95, 0.95, 1.0)` |
+| Fog Mode | Linear |
+| Fog Color | `Color3(0.95, 0.95, 0.95)` |
+| Fog Start | 80m |
+| Fog End | 150m |
+
+### IBL Environment
+
+| Setting | Value |
+|---------|-------|
+| URL | `https://assets.babylonjs.com/environments/environmentSpecular.env` |
+| Intensity | 0.5 |
+
+### 2-Light Rig
+
+| Light | Intensity | Notes |
+|-------|-----------|-------|
+| Hemispheric | 0.6 | Diffuse: white, Ground: `(0.4, 0.4, 0.4)` |
+| Directional | 0.8 | Direction: `(-1, -2, -1)` normalized |
+
+### Studio Shadow Generator
+
+| Setting | Value |
+|---------|-------|
+| Blur Kernel | 16 |
+| Darkness | 0.3 |
+
+---
+
+## Black Studio Preset
+
+Same structure as White Studio with dark values:
+
+| Property | Value |
+|----------|-------|
+| Clear Color | `Color4(0.06, 0.06, 0.08, 1.0)` |
+| Fog Color | `Color3(0.06, 0.06, 0.08)` |
+| Ground Albedo | `Color3(0.10, 0.10, 0.12)` |
+| Ground Env Intensity | 0.15 |
+| Grid Main / Line | `0.10` / `0.20` |
+| Grid Opacity | 0.35 |
+| Hemi Intensity | 0.2 |
+| Dir Intensity | 0.4 |
+| Env Intensity | 0.2 |
+
+---
+
+## Shared Configuration
+
+### Shadow Map Size
+
+| Device | Size |
+|--------|------|
+| Desktop | 2048 |
+| Mobile | 1024 |
+
+All presets use `useBlurExponentialShadowMap = true`.
+All meshes auto-registered via `onNewMeshAddedObservable`.
+
+### Camera (Arc Rotate)
 
 | Setting | Desktop | Mobile |
 |---------|---------|--------|
@@ -132,18 +189,14 @@ Select via UI dropdown in control panel.
 | Upper Radius | 100 | 150 |
 | Lower Beta | 0.1 | 0.1 |
 | Upper Beta | `Math.PI / 2 - 0.1` | `Math.PI / 2 - 0.1` |
+| FOV | 50 deg | 50 deg |
+| Near / Far | 0.5 / 1000 | 0.5 / 1000 |
 
----
-
-## Responsive Breakpoints
+### Responsive
 
 | Setting | Value |
 |---------|-------|
 | Mobile Breakpoint | 768px |
-
-```typescript
-const isMobile = () => window.innerWidth < 768
-```
 
 ---
 
@@ -152,4 +205,4 @@ const isMobile = () => window.innerWidth < 768
 | File | Purpose |
 |------|---------|
 | `src/components/SceneSetup.tsx` | Scene environment implementation |
-| `src/lib/constants/environment.ts` | Environment constants (planned) |
+| `src/lib/constants/sceneConfig.ts` | Centralized configuration values |

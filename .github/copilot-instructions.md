@@ -27,7 +27,7 @@ public/tents/{TentType}/{Variant}/  # GLB 3D models (NOT in src/)
 ## Critical Patterns
 
 ### Frame Component Pattern
-See [Baseplates.tsx](../src/tents/PremiumArchTent/frame/Baseplates.tsx):
+See [Baseplates.tsx](../src/tents/SharedFrames/Baseplates.tsx):
 ```tsx
 export const Baseplates: FC<BaseplatesProps> = ({ enabled }) => {
   const scene = useScene()
@@ -69,7 +69,7 @@ npm run lint     # ESLint
 2. **GLB files in `public/`** — never import 3D assets into `src/`
 3. **Use `specs.ts` for dimensions** — no hardcoded measurements in components
 4. **Thin instances for repeated geometry** — `createThinInstances()` not `.clone()`
-5. **`StandardMaterial` for frame** — reserve `PBRMaterial` for covers/reflective
+5. **`PBRMaterial` for all materials** — frame and cover parts both use PBR for consistent quality
 6. **Share materials** — create once, reuse across instances
 7. **No emojis in UI** — keep interface text clean
 8. **Remove GLB materials** — strip default materials from loaded GLBs, apply materials via code:

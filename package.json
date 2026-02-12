@@ -13,6 +13,7 @@
     "@babylonjs/core": "^8.49.6",
     "@babylonjs/gui": "^8.49.6",
     "@babylonjs/loaders": "^8.49.6",
+    "@babylonjs/materials": "^8.50.2",
     "react": "^19.2.0",
     "react-babylonjs": "^3.2.5-beta.2",
     "react-dom": "^19.2.0"

@@ -12,6 +12,7 @@
 
 export const PATHS = {
   tents: '/tents',
+  sharedFrames: '/tents/SharedFrames',
   accessories: '/accessories',
 } as const
 
@@ -41,6 +42,11 @@ export function getConnectorsPath(tentType: TentType, variant: TentVariant): str
 /** Covers GLBs folder: /tents/PremiumArchTent/15m/covers/ */
 export function getCoversPath(tentType: TentType, variant: TentVariant): string {
   return `${getTentPath(tentType, variant)}/covers/`
+}
+
+/** Shared frame GLBs folder: /tents/SharedFrames/ */
+export function getSharedFramePath(): string {
+  return `${PATHS.sharedFrames}/`
 }
 
 // ─── Accessory Paths ─────────────────────────────────────────────────────────

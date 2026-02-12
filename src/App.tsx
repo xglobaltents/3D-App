@@ -1,11 +1,10 @@
 import { Suspense, useState } from 'react'
 import { FallbackEngine, Scene } from 'react-babylonjs'
-import { Color4 } from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 
-import { SceneSetup, type SkyPreset } from './components/SceneSetup'
+import { SceneSetup, type EnvironmentPreset } from './components/SceneSetup'
 import { PerformanceStats } from './components/PerformanceStats'
-import { Baseplates } from './tents/PremiumArchTent/frame/Baseplates'
+import { Baseplates } from './tents/SharedFrames/Baseplates'
 import './App.css'
 
 function App() {
@@ -14,7 +13,7 @@ function App() {
   const [showCovers, setShowCovers] = useState(true)
   const [tentType, setTentType] = useState('PremiumArchTent')
   const [showStats, setShowStats] = useState(false)
-  const [skyPreset, setSkyPreset] = useState<SkyPreset>('default')
+  const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>('default')
 
   const tentLength = numBays * 5 // 5m per bay
 
@@ -26,8 +25,8 @@ function App() {
         engineProps={{ antialias: true, adaptToDeviceRatio: true }}
         webGPUEngineProps={{ webGPUEngineOptions: { antialias: true } }}
       >
-        <Scene clearColor={new Color4(0.04, 0.04, 0.04, 1)}>
-          <SceneSetup skyPreset={skyPreset} />
+        <Scene>
+          <SceneSetup environmentPreset={environmentPreset} />
 
           <Suspense fallback={null}>
             <Baseplates enabled={tentType === 'PremiumArchTent' && showFrame} />
@@ -115,10 +114,10 @@ function App() {
         <hr />
 
         <label>Environment</label>
-        <select value={skyPreset} onChange={(e) => setSkyPreset(e.target.value as SkyPreset)}>
-          <option value="default">Day (Default)</option>
-          <option value="dark">Dark</option>
-          <option value="midnight">Midnight</option>
+        <select value={environmentPreset} onChange={(e) => setEnvironmentPreset(e.target.value as EnvironmentPreset)}>
+          <option value="default">Default</option>
+          <option value="white">White Studio</option>
+          <option value="black">Black Studio</option>
         </select>
 
         <hr />
