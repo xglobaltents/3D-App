@@ -70,16 +70,26 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
 
         for (const mesh of scene.meshes) {
           if (mesh.isEnabled() && mesh.isVisible && mesh.getTotalIndices) {
-            const triangles = Math.floor(mesh.getTotalIndices() / 3)
+            const indices = mesh.getTotalIndices()
             const vertices = mesh.getTotalVertices?.() ?? 0
+
+            // Handle non-indexed geometry (e.g. CAD-exported GLBs with no
+            // index buffer): fall back to vertices / 3.
+            const triangles = indices > 0
+              ? Math.floor(indices / 3)
+              : Math.floor(vertices / 3)
+
             totalTriangles += triangles
 
-            // Group by parent name or mesh name (extract component name)
+            // Walk the parent chain past __root__ nodes to find the
+            // component TransformNode (e.g. "uprights-root")
             let componentName = mesh.name
-
-            // Try to get a cleaner name from parent hierarchy
-            if (mesh.parent?.name && mesh.parent.name !== '__root__') {
-              componentName = mesh.parent.name
+            let parent = mesh.parent
+            while (parent && (parent.name === '__root__' || parent.name === '')) {
+              parent = parent.parent
+            }
+            if (parent?.name) {
+              componentName = parent.name
             }
 
             // Clean up common prefixes
@@ -87,6 +97,7 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
               .replace(/^__root__\.?/, '')
               .replace(/_primitive\d+$/, '')
               .replace(/\.\d+$/, '')
+              .replace(/-root$/, '')
 
             if (!componentName || componentName === '') {
               componentName = mesh.name || 'Unnamed'

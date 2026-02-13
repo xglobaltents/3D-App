@@ -5,6 +5,8 @@ import '@babylonjs/loaders/glTF'
 import { SceneSetup, type EnvironmentPreset } from './components/SceneSetup'
 import { PerformanceStats } from './components/PerformanceStats'
 import { Baseplates } from './tents/SharedFrames/Baseplates'
+import { Uprights } from './tents/PremiumArchTent/15m/frame/Uprights'
+import { TENT_SPECS as PREMIUM_ARCH_SPECS } from './tents/PremiumArchTent/15m/specs'
 import './App.css'
 
 function App() {
@@ -30,6 +32,11 @@ function App() {
 
           <Suspense fallback={null}>
             <Baseplates enabled={tentType === 'PremiumArchTent' && showFrame} />
+            <Uprights
+              numBays={numBays}
+              specs={PREMIUM_ARCH_SPECS}
+              enabled={tentType === 'PremiumArchTent' && showFrame}
+            />
           </Suspense>
         </Scene>
       </FallbackEngine>
