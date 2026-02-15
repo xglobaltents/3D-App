@@ -3,73 +3,111 @@ import '@babylonjs/loaders/glTF'
 
 // ─── GLB Asset Cache ─────────────────────────────────────────────────────────
 
-const glbCache = new Map<string, AbstractMesh[]>()
+interface CacheEntry {
+  meshes: AbstractMesh[]
+  sceneUid: string
+}
+
+const glbCache = new Map<string, CacheEntry>()
 
 /**
  * Clear all cached GLB template meshes. Call on scene teardown.
+ * Disposes template meshes that belong to the given scene (or all if no scene).
  */
-export function clearGLBCache(): void {
-  glbCache.clear()
+export function clearGLBCache(scene?: Scene): void {
+  if (!scene) {
+    for (const entry of glbCache.values()) {
+      for (const m of entry.meshes) {
+        try { m.dispose() } catch { /* already gone */ }
+      }
+    }
+    glbCache.clear()
+    return
+  }
+  const uid = scene.uid
+  for (const [key, entry] of glbCache.entries()) {
+    if (entry.sceneUid === uid) {
+      for (const m of entry.meshes) {
+        try { m.dispose() } catch { /* already gone */ }
+      }
+      glbCache.delete(key)
+    }
+  }
 }
 
 // ─── GLB Loading ─────────────────────────────────────────────────────────────
 
 /**
- * Load a GLB model from path. Results are cached by path so the same
- * file is only fetched/parsed once; subsequent calls clone from the
- * cached template meshes.
- * @param scene - Babylon scene
- * @param folder - Folder path (e.g., '/tents/PremiumArchTent/15m/frame/')
- * @param filename - GLB filename (e.g., 'baseplate.glb')
+ * Load a GLB model from path. Results are cached by path+scene so the
+ * same file is only fetched/parsed once per scene; subsequent calls
+ * clone from the cached template meshes.
+ *
+ * Supports AbortSignal for cancellation in React effects.
  */
 export async function loadGLB(
   scene: Scene,
   folder: string,
-  filename: string
+  filename: string,
+  signal?: AbortSignal
 ): Promise<AbstractMesh[]> {
   const key = folder + filename
 
   const cached = glbCache.get(key)
+  if (cached && cached.sceneUid === scene.uid) {
+    // Clone each cached template mesh — never return the hidden template itself
+    return cloneTemplates(cached.meshes)
+  }
+  // Stale cache from a different scene — evict it
   if (cached) {
-    // Clone each cached template mesh into the current scene
-    return cached.map((m) => {
-      const clone = m.clone(m.name, null)
-      if (clone) {
-        clone.setEnabled(true)
-        return clone
-      }
-      return m
-    }).filter(Boolean) as AbstractMesh[]
+    for (const m of cached.meshes) {
+      try { m.dispose() } catch { /* already gone */ }
+    }
+    glbCache.delete(key)
   }
 
   const result = await SceneLoader.ImportMeshAsync('', folder, filename, scene)
+
+  // Check abort after async
+  if (signal?.aborted) {
+    for (const m of result.meshes) m.dispose()
+    return []
+  }
 
   // Store originals as hidden templates — callers get clones so
   // disposing clones never poisons the cache.
   for (const m of result.meshes) {
     m.setEnabled(false)
   }
-  glbCache.set(key, result.meshes)
+  glbCache.set(key, { meshes: result.meshes, sceneUid: scene.uid })
 
-  return result.meshes.map((m) => {
+  return cloneTemplates(result.meshes)
+}
+
+/** Clone template meshes safely — never returns the hidden template itself. */
+function cloneTemplates(templates: AbstractMesh[]): AbstractMesh[] {
+  const result: AbstractMesh[] = []
+  for (const m of templates) {
     const clone = m.clone(m.name, null)
     if (clone) {
       clone.setEnabled(true)
-      return clone
+      result.push(clone)
     }
-    return m
-  }).filter(Boolean) as AbstractMesh[]
+    // If clone fails, skip — do NOT return the hidden template (#30)
+  }
+  return result
 }
 
 /**
- * Load GLB and get the root mesh (first mesh with geometry)
+ * Load GLB and get the root mesh (first mesh with geometry).
+ * Supports AbortSignal for cancellation.
  */
 export async function loadGLBMesh(
   scene: Scene,
   folder: string,
-  filename: string
+  filename: string,
+  signal?: AbortSignal
 ): Promise<Mesh | null> {
-  const meshes = await loadGLB(scene, folder, filename)
+  const meshes = await loadGLB(scene, folder, filename, signal)
   
   // Find first mesh with actual geometry (skip __root__)
   for (const mesh of meshes) {
@@ -189,7 +227,7 @@ export function freezeStaticMeshes(meshes: AbstractMesh[]): void {
 /**
  * Enhanced thin-instance creation with automatic freezing.
  * After calling this, the mesh and its instances are fully static —
- * world matrix, normals, and bounding info are all frozen.
+ * world matrix and normals are frozen, bounding info encompasses all instances.
  */
 export function createFrozenThinInstances(
   mesh: Mesh,
@@ -197,8 +235,16 @@ export function createFrozenThinInstances(
 ): void {
   createThinInstances(mesh, transforms)
 
-  // Freeze everything — thin instances are static geometry
+  // Refresh bounding info to encompass ALL thin-instance positions.
+  // Without this, the bounding box only covers the template at origin
+  // and frustum culling will hide instances that are far from origin.
+  mesh.thinInstanceRefreshBoundingInfo(false)
+
+  // Ensure the mesh is never frustum-culled — tent parts are the main
+  // scene content and should always render when enabled.
+  mesh.alwaysSelectAsActiveMesh = true
+
+  // Freeze static geometry for perf
   mesh.freezeWorldMatrix()
   mesh.freezeNormals()
-  mesh.doNotSyncBoundingInfo = true
 }

@@ -24,8 +24,9 @@ function getCachedOrCreate(
   const existing = cache.get(key)
   // Return cached material if it still belongs to the active scene
   if (existing && existing.getScene() === scene) return existing
-  // Stale entry from a previous scene — dispose and recreate
+  // Stale entry from a previous scene — dispose and recreate (#26)
   if (existing) { try { existing.dispose() } catch { /* already gone */ } }
+  cache.delete(key)
 
   const mat = new PBRMaterial(key, scene)
   factory(mat)

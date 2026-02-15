@@ -70,6 +70,7 @@ export const SCENE_CONFIG = {
   defaultGround: {
     size: 600,
     tileRepeat: 150,
+    texSize: 1024,
     groutWidthPx: 1,
     roughness: 0.95,
     metallic: 0,
@@ -214,8 +215,15 @@ export const SCENE_CONFIG = {
       upperRadiusLimit: 150,
     },
 
-    lowerBetaLimit: 0.1,
+    lowerBetaLimit: 0.3,
     upperBetaLimit: Math.PI / 2 - 0.1,
+
+    // Inertia & damping (#4)
+    inertia: 0.85,
+    panningInertia: 0.85,
+    pinchPrecision: 50,
+    angularSensibilityX: 500,
+    angularSensibilityY: 500,
   },
 
   shadowMapSize: {
@@ -249,4 +257,19 @@ export function getShadowMapSize(): number {
 
 export function getStudioPresetColors(preset: 'white' | 'black'): StudioPresetColors {
   return SCENE_CONFIG.studioPresets[preset]
+}
+
+/**
+ * Compute reactive camera target and radius based on tent dimensions.
+ * Target centers on the tent vertically; radius ensures full visibility.
+ */
+export function getReactiveCameraConfig(numBays: number, eaveHeight: number, bayDistance: number) {
+  const tentLength = numBays * bayDistance
+  const base = isMobile() ? SCENE_CONFIG.camera.mobile : SCENE_CONFIG.camera.desktop
+  return {
+    ...base,
+    target: new Vector3(0, eaveHeight * 0.6, 0),
+    radius: Math.max(base.radius, tentLength * 0.5 + 10),
+    upperRadiusLimit: Math.max(base.upperRadiusLimit, tentLength * 1.5),
+  }
 }

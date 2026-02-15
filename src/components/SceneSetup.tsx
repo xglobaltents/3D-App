@@ -1,6 +1,8 @@
 import { type FC, useEffect } from 'react'
 import { useScene } from 'react-babylonjs'
 import {
+  ArcRotateCamera,
+  Color4,
   CubeTexture,
   DirectionalLight,
   DynamicTexture,
@@ -13,24 +15,39 @@ import {
   ShadowGenerator,
   ShaderMaterial,
   Texture,
+  Vector3,
+  Animation,
 } from '@babylonjs/core'
 import { GridMaterial } from '@babylonjs/materials'
 import {
   SCENE_CONFIG,
-  getCameraConfig,
   getShadowMapSize,
   getStudioPresetColors,
   type EnvironmentPreset,
 } from '../lib/constants/sceneConfig'
 import { disposeFrameMaterialCache } from '../lib/materials/frameMaterials'
 import { disposeCoverMaterialCache } from '../lib/materials/coverMaterials'
+import { clearGLBCache } from '../lib/utils/GLBLoader'
 
 // ─── Re-export types ─────────────────────────────────────────────────────────
 
 export type { EnvironmentPreset }
 
+/** Camera view preset for animating camera position */
+export type CameraView = 'orbit' | 'front' | 'side' | 'top' | 'back'
+
 interface SceneSetupProps {
   environmentPreset?: EnvironmentPreset
+  /** Reactive camera target — pass from parent based on tent dimensions */
+  cameraTarget?: Vector3
+  /** Reactive camera radius */
+  cameraRadius?: number
+  /** Upper radius limit */
+  cameraUpperRadiusLimit?: number
+  /** Current camera view */
+  cameraView?: CameraView
+  /** Callback when camera animation completes */
+  onCameraViewAnimated?: () => void
 }
 
 // ─── Sky Gradient Shader (default preset) ────────────────────────────────────
@@ -70,6 +87,49 @@ const SKY_FRAGMENT = `
 
 Effect.ShadersStore['skyGradientVertexShader'] = SKY_VERTEX
 Effect.ShadersStore['skyGradientFragmentShader'] = SKY_FRAGMENT
+
+// ─── Shared Shadow Caster Helper (#7 — deduplicated) ─────────────────────────
+
+const SHADOW_TRI_THRESHOLD = 100
+
+function shouldCastShadow(mesh: Mesh, excludeMeshes: Mesh[]): boolean {
+  if (excludeMeshes.includes(mesh)) return false
+  if (!mesh.isEnabled() || !mesh.isVisible) return false
+  if (mesh.metadata?.noShadow) return false
+  const tris = Math.floor(mesh.getTotalIndices() / 3)
+  return tris >= SHADOW_TRI_THRESHOLD
+}
+
+function registerShadowCasters(
+  scene: BScene,
+  shadowGen: ShadowGenerator,
+  excludeMeshes: Mesh[]
+): { dispose(): void } {
+  // Register existing meshes
+  for (const m of scene.meshes) {
+    if (m instanceof Mesh && shouldCastShadow(m, excludeMeshes)) {
+      shadowGen.addShadowCaster(m)
+    }
+  }
+  // Auto-register new meshes
+  const addObs = scene.onNewMeshAddedObservable.add((m) => {
+    if (m instanceof Mesh && shouldCastShadow(m, excludeMeshes)) {
+      shadowGen.addShadowCaster(m)
+    }
+  })
+  // Auto-remove disposed meshes (#6 — shadow cleanup)
+  const removeObs = scene.onMeshRemovedObservable.add((m) => {
+    if (m instanceof Mesh) {
+      shadowGen.removeShadowCaster(m)
+    }
+  })
+  return {
+    dispose() {
+      scene.onNewMeshAddedObservable.remove(addObs)
+      scene.onMeshRemovedObservable.remove(removeObs)
+    },
+  }
+}
 
 // ─── Disposable interface ────────────────────────────────────────────────────
 
@@ -111,7 +171,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
 
   // ── Terracotta tile ground (multi-tile with colour variation) ──
   const tilesPerSide = 8          // 8×8 tile grid in texture
-  const texSize = 512
+  const texSize = defaultGround.texSize   // (#8) Use config value, now 1024
   const grout = defaultGround.groutWidthPx * 2 // thicker grout at higher res
   const cellSize = texSize / tilesPerSide
   const groundTex = new DynamicTexture('ground-tile-tex', texSize, scene, false)
@@ -180,14 +240,19 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   bottomLight.diffuse = dl.bottom.color.clone()
 
   // ── IBL environment texture for PBR material reflections ──
+  // (#5) Add fallback — if .env file 404s, PBR still looks reasonable
   let envTex: CubeTexture | null = null
   try {
     envTex = CubeTexture.CreateFromPrefilteredData(environment.iblUrl, scene)
     scene.environmentTexture = envTex
     scene.environmentIntensity = 0.5
   } catch {
-    console.warn('SceneSetup: Failed to load IBL environment texture, PBR reflections disabled')
+    console.warn('SceneSetup: IBL environment texture failed to load — PBR reflections will be limited')
+    scene.environmentTexture = null
   }
+
+  // (#9) Fallback clearColor in case sky dome fails
+  scene.clearColor = new Color4(0.75, 0.85, 0.92, 1.0)
 
   // ── Shadow generator (sun) ──
   const ds = defaultShadow
@@ -198,26 +263,8 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   shadowGen.normalBias = ds.normalBias
   shadowGen.setDarkness(ds.darkness)
 
-  // Auto-register shadow casters (skip small meshes below triangle threshold)
-  const SHADOW_TRI_THRESHOLD = 100
-  const shouldCastShadow = (m: Mesh): boolean => {
-    if (m === groundMesh || m === skyDome) return false
-    if (!m.isEnabled() || !m.isVisible) return false
-    if (m.metadata?.noShadow) return false
-    const tris = Math.floor(m.getTotalIndices() / 3)
-    return tris >= SHADOW_TRI_THRESHOLD
-  }
-
-  for (const m of scene.meshes) {
-    if (m instanceof Mesh && shouldCastShadow(m)) {
-      shadowGen.addShadowCaster(m)
-    }
-  }
-  const obs = scene.onNewMeshAddedObservable.add((m) => {
-    if (m instanceof Mesh && shouldCastShadow(m)) {
-      shadowGen.addShadowCaster(m)
-    }
-  })
+  // Auto-register shadow casters using shared helper (#7)
+  const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, skyDome])
 
   // ── Scene settings ──
   scene.autoClear = false           // sky dome covers background
@@ -233,7 +280,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
 
   return {
     dispose() {
-      scene.onNewMeshAddedObservable.remove(obs)
+      shadowObs.dispose()
       shadowGen.dispose()
       bottomLight.dispose()
       fillLight.dispose()
@@ -245,6 +292,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
       groundTex.dispose()
       skyDome.dispose()
       skyMat.dispose()
+      clearGLBCache(scene)
       disposeFrameMaterialCache()
       disposeCoverMaterialCache()
     },
@@ -317,25 +365,8 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   shadowGen.blurKernel = ss.blurKernel
   shadowGen.setDarkness(ss.darkness)
 
-  const SHADOW_TRI_THRESHOLD = 100
-  const shouldCastShadow = (m: Mesh): boolean => {
-    if (m === groundMesh || m === gridMesh) return false
-    if (!m.isEnabled() || !m.isVisible) return false
-    if (m.metadata?.noShadow) return false
-    const tris = Math.floor(m.getTotalIndices() / 3)
-    return tris >= SHADOW_TRI_THRESHOLD
-  }
-
-  for (const m of scene.meshes) {
-    if (m instanceof Mesh && shouldCastShadow(m)) {
-      shadowGen.addShadowCaster(m)
-    }
-  }
-  const obs = scene.onNewMeshAddedObservable.add((m) => {
-    if (m instanceof Mesh && shouldCastShadow(m)) {
-      shadowGen.addShadowCaster(m)
-    }
-  })
+  // Use shared shadow helper (#7)
+  const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, gridMesh])
 
   // ── IBL environment ──
   let envTex: CubeTexture | null = null
@@ -344,7 +375,8 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
     scene.environmentTexture = envTex
     scene.environmentIntensity = colors.environmentIntensity
   } catch {
-    console.warn('SceneSetup: Failed to load IBL environment texture for studio preset')
+    console.warn('SceneSetup: IBL texture failed to load in studio preset')
+    scene.environmentTexture = null
   }
 
   // No fog in studio environments
@@ -354,14 +386,15 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   scene.autoClear = true
   scene.autoClearDepthAndStencil = true
 
-  // Neutral image processing for studio
-  scene.imageProcessingConfiguration.toneMappingEnabled = false
+  // (#10) Mild tone mapping in studio to avoid jarring brightness shift
+  scene.imageProcessingConfiguration.toneMappingEnabled = true
+  scene.imageProcessingConfiguration.toneMappingType = 1 // ACES
   scene.imageProcessingConfiguration.exposure = 1.0
   scene.imageProcessingConfiguration.contrast = 1.0
 
   return {
     dispose() {
-      scene.onNewMeshAddedObservable.remove(obs)
+      shadowObs.dispose()
       shadowGen.dispose()
       dirLight.dispose()
       hemiLight.dispose()
@@ -373,26 +406,83 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
         envTex.dispose()
         scene.environmentTexture = null
       }
+      clearGLBCache(scene)
       disposeFrameMaterialCache()
       disposeCoverMaterialCache()
     },
   }
 }
 
+// ─── Camera View Animation ───────────────────────────────────────────────────
+
+function animateCameraToView(
+  camera: ArcRotateCamera,
+  view: CameraView,
+  _target: Vector3,
+  radius: number
+): void {
+  const fps = 60
+  const frames = 30
+
+  const views: Record<CameraView, { alpha: number; beta: number; radiusMul: number }> = {
+    orbit: { alpha: Math.PI / 4, beta: Math.PI / 3, radiusMul: 1.0 },
+    front: { alpha: Math.PI / 2, beta: Math.PI / 2.5, radiusMul: 1.0 },
+    side: { alpha: 0, beta: Math.PI / 2.5, radiusMul: 1.0 },
+    top: { alpha: 0, beta: 0.1, radiusMul: 1.2 },
+    back: { alpha: -Math.PI / 2, beta: Math.PI / 2.5, radiusMul: 1.0 },
+  }
+  const v = views[view]
+  const scene = camera.getScene()
+
+  // Alpha animation
+  const alphaAnim = new Animation('alphaAnim', 'alpha', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
+  alphaAnim.setKeys([
+    { frame: 0, value: camera.alpha },
+    { frame: frames, value: v.alpha },
+  ])
+
+  // Beta animation
+  const betaAnim = new Animation('betaAnim', 'beta', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
+  betaAnim.setKeys([
+    { frame: 0, value: camera.beta },
+    { frame: frames, value: v.beta },
+  ])
+
+  // Radius animation
+  const radiusAnim = new Animation('radiusAnim', 'radius', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
+  radiusAnim.setKeys([
+    { frame: 0, value: camera.radius },
+    { frame: frames, value: radius * v.radiusMul },
+  ])
+
+  scene.beginDirectAnimation(camera, [alphaAnim, betaAnim, radiusAnim], 0, frames, false)
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 /**
  * Scene environment with 3 modes:
- *   - default → sky dome + terracotta ground + 4-light rig + ACES tone mapping
- *   - white   → white studio: PBR ground + grid + fog + IBL
- *   - black   → black studio: same structure, dark colours
+ *   - default -> sky dome + terracotta ground + 4-light rig + ACES tone mapping
+ *   - white   -> white studio: PBR ground + grid + IBL
+ *   - black   -> black studio: same structure, dark colours
  *
+ * Camera target + radius are reactive to tent dimensions (#1).
  * Entire environment rebuilds when preset changes.
  * @see docs/environment-settings.md
  */
-export const SceneSetup: FC<SceneSetupProps> = ({ environmentPreset = 'default' }) => {
+export const SceneSetup: FC<SceneSetupProps> = ({
+  environmentPreset = 'default',
+  cameraTarget,
+  cameraRadius,
+  cameraUpperRadiusLimit,
+  cameraView = 'orbit',
+}) => {
   const scene = useScene()
-  const cameraConfig = getCameraConfig()
+
+  // Default camera values
+  const target = cameraTarget ?? new Vector3(0, 3, 0)
+  const radius = cameraRadius ?? 25
+  const upperLimit = cameraUpperRadiusLimit ?? 150
 
   useEffect(() => {
     if (!scene) return
@@ -416,6 +506,24 @@ export const SceneSetup: FC<SceneSetupProps> = ({ environmentPreset = 'default' 
     }
   }, [scene, environmentPreset])
 
+  // (#1) Update camera target/radius reactively when tent dimensions change
+  useEffect(() => {
+    if (!scene) return
+    const camera = scene.activeCamera as ArcRotateCamera | null
+    if (!camera) return
+    camera.target = target.clone()
+    camera.radius = radius
+    camera.upperRadiusLimit = upperLimit
+  }, [scene, target.x, target.y, target.z, radius, upperLimit])
+
+  // (#2) Animate camera on view changes
+  useEffect(() => {
+    if (!scene) return
+    const camera = scene.activeCamera as ArcRotateCamera | null
+    if (!camera) return
+    animateCameraToView(camera, cameraView, target, radius)
+  }, [scene, cameraView])
+
   const { camera: camConfig } = SCENE_CONFIG
 
   return (
@@ -423,15 +531,20 @@ export const SceneSetup: FC<SceneSetupProps> = ({ environmentPreset = 'default' 
       name="main-camera"
       alpha={Math.PI / 4}
       beta={Math.PI / 3}
-      radius={cameraConfig.radius}
-      target={cameraConfig.target}
+      radius={radius}
+      target={target}
       minZ={camConfig.minZ}
       wheelPrecision={camConfig.wheelPrecision}
       panningSensibility={camConfig.panningSensibility}
-      lowerRadiusLimit={cameraConfig.lowerRadiusLimit}
-      upperRadiusLimit={cameraConfig.upperRadiusLimit}
+      lowerRadiusLimit={5}
+      upperRadiusLimit={upperLimit}
       lowerBetaLimit={camConfig.lowerBetaLimit}
       upperBetaLimit={camConfig.upperBetaLimit}
+      inertia={camConfig.inertia}
+      panningInertia={camConfig.panningInertia}
+      pinchPrecision={camConfig.pinchPrecision}
+      angularSensibilityX={camConfig.angularSensibilityX}
+      angularSensibilityY={camConfig.angularSensibilityY}
     />
   )
 }

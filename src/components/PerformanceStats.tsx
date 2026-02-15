@@ -75,9 +75,15 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
 
             // Handle non-indexed geometry (e.g. CAD-exported GLBs with no
             // index buffer): fall back to vertices / 3.
-            const triangles = indices > 0
+            let triangles = indices > 0
               ? Math.floor(indices / 3)
               : Math.floor(vertices / 3)
+
+            // Thin instances multiply the template geometry
+            const instanceCount = (mesh as unknown as { thinInstanceCount?: number }).thinInstanceCount
+            if (instanceCount && instanceCount > 0) {
+              triangles *= instanceCount
+            }
 
             totalTriangles += triangles
 
@@ -122,8 +128,8 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
       // Detect engine type
       const isWebGPU = engine instanceof WebGPUEngine || engine.name === 'WebGPU'
 
-      // drawCallsPerfCounter is an internal Babylon.js property (v8.x)
-      const drawCalls = (engine as unknown as { drawCallsPerfCounter?: { current: number } }).drawCallsPerfCounter?.current ?? 0
+      // Use the scene instrumentation's draw call count (v8 compatible)
+      const drawCalls = (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current ?? 0
 
       setStats({
         fps: Math.round(engine.getFps()),
