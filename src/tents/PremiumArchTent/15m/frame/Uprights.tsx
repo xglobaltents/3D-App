@@ -145,6 +145,16 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 				// Apply thin instances to each mesh with geometry
 				for (const src of templateMeshes) {
 					src.parent = root
+
+					// Reset local transform to identity — re-parenting from
+					// template bakes its rotation/scaling into the mesh's local
+					// transform, but thin instance matrices already carry the
+					// full transform, so the mesh must be at identity.
+					src.position.setAll(0)
+					src.rotationQuaternion = null
+					src.rotation.setAll(0)
+					src.scaling.setAll(1)
+
 					src.setEnabled(true)
 					src.material = aluminumMat
 					createFrozenThinInstances(src, transforms)
