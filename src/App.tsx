@@ -31,7 +31,7 @@ function App() {
           <SceneSetup environmentPreset={environmentPreset} />
 
           <Suspense fallback={null}>
-            <Baseplates enabled={tentType === 'PremiumArchTent' && showFrame} />
+            <Baseplates numBays={numBays} specs={PREMIUM_ARCH_SPECS} enabled={tentType === 'PremiumArchTent' && showFrame} />
             <Uprights
               numBays={numBays}
               specs={PREMIUM_ARCH_SPECS}

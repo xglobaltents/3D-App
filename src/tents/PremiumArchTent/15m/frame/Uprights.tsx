@@ -91,14 +91,16 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 				const rotatedBounds = measureWorldBounds(templateMeshes)
 
 				const profile = specs.profiles.upright
-				if (rotatedBounds.size.y > 0) {
-					template.scaling.y = specs.eaveHeight / rotatedBounds.size.y
-				}
 				if (rotatedBounds.size.x > 0) {
 					template.scaling.x = profile.width / rotatedBounds.size.x
 				}
+				// rotation.x = -PI/2 swaps local Y↔Z in world space:
+				//   scaling.z → world Y (height), scaling.y → world Z (depth)
+				if (rotatedBounds.size.y > 0) {
+					template.scaling.z = specs.eaveHeight / rotatedBounds.size.y
+				}
 				if (rotatedBounds.size.z > 0) {
-					template.scaling.z = profile.height / rotatedBounds.size.z
+					template.scaling.y = profile.height / rotatedBounds.size.z
 				}
 
 				// Find ground offset
