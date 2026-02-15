@@ -1,14 +1,15 @@
-import { useState, useCallback, type ErrorInfo, Component, type ReactNode } from 'react'
+import { useState, useCallback, useRef, type ErrorInfo, Component, type ReactNode } from 'react'
 import { FallbackEngine, Scene } from 'react-babylonjs'
 import '@babylonjs/loaders/glTF'
 
-import { SceneSetup, type EnvironmentPreset, type CameraView } from './components/SceneSetup'
-import { PerformanceStats } from './components/PerformanceStats'
-import { Baseplates } from './tents/SharedFrames/Baseplates'
-import { Uprights } from './tents/PremiumArchTent/15m/frame/Uprights'
-import { TENT_SPECS as PREMIUM_ARCH_SPECS } from './tents/PremiumArchTent/15m/specs'
-import { getReactiveCameraConfig } from './lib/constants/sceneConfig'
-import './App.css'
+import { SceneSetup, type EnvironmentPreset, type CameraView } from '@/components/SceneSetup'
+import { PerformanceStats } from '@/components/PerformanceStats'
+import { Baseplates } from '@/tents/SharedFrames/Baseplates'
+import { Uprights } from '@/tents/PremiumArchTent/15m/frame/Uprights'
+import { TENT_SPECS as PREMIUM_ARCH_SPECS } from '@/tents/PremiumArchTent/15m/specs'
+import { getReactiveCameraConfig } from '@/lib/constants/sceneConfig'
+import { useBottomSheetDrag } from '@/hooks/useBottomSheetDrag'
+import '@/App.css'
 
 // ─── Error Boundary (#31) ────────────────────────────────────────────────────
 
@@ -67,12 +68,15 @@ const TENT_OPTIONS = [
 function App() {
   const [numBays, setNumBays] = useState(3)
   const [showFrame, setShowFrame] = useState(true)
-  const [showCovers, setShowCovers] = useState(true)
   const [tentType, setTentType] = useState('PremiumArchTent')
   const [showStats, setShowStats] = useState(false)
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>('default')
   const [cameraView, setCameraView] = useState<CameraView>('orbit')
   const [loadingCount, setLoadingCount] = useState(0)
+
+  // (#19) Mobile bottom sheet drag gesture
+  const controlsRef = useRef<HTMLDivElement>(null)
+  useBottomSheetDrag(controlsRef, { peekHeight: 80, maxHeight: 280 })
 
   const tentLength = numBays * 5 // 5m per bay
 
@@ -86,6 +90,11 @@ function App() {
 
   const isLoading = loadingCount > 0
   const isPremiumArch = tentType === 'PremiumArchTent'
+
+  // Reset camera view to orbit when user manually interacts
+  const handleCameraViewReset = useCallback(() => {
+    setCameraView('orbit')
+  }, [])
 
   // (#18) Screenshot handler
   const handleScreenshot = useCallback(() => {
@@ -138,6 +147,7 @@ function App() {
               cameraRadius={cameraConfig.radius}
               cameraUpperRadiusLimit={cameraConfig.upperRadiusLimit}
               cameraView={cameraView}
+              onCameraViewReset={handleCameraViewReset}
             />
 
             {isPremiumArch && showFrame && (
@@ -170,7 +180,7 @@ function App() {
         {showStats && <PerformanceStats onClose={() => setShowStats(false)} />}
 
         {/* Control Panel */}
-        <div id="controls">
+        <div id="controls" ref={controlsRef}>
           <h1>Bait Al Nokhada</h1>
           <div className="subtitle">3D Tent Design System</div>
 
@@ -240,11 +250,10 @@ function App() {
             <div className="section-header">
               <span className="section-title">Covers</span>
               <button 
-                className={`toggle-btn ${showCovers ? 'active' : ''}`}
-                onClick={() => setShowCovers(!showCovers)}
+                className="toggle-btn"
                 disabled
               >
-                {/* (#23) Covers are a stub — show disabled state */}
+                {/* (#23) Covers are a stub -- show disabled state */}
                 Coming Soon
               </button>
             </div>

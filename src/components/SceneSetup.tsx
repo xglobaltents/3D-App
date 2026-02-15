@@ -24,10 +24,10 @@ import {
   getShadowMapSize,
   getStudioPresetColors,
   type EnvironmentPreset,
-} from '../lib/constants/sceneConfig'
-import { disposeFrameMaterialCache } from '../lib/materials/frameMaterials'
-import { disposeCoverMaterialCache } from '../lib/materials/coverMaterials'
-import { clearGLBCache } from '../lib/utils/GLBLoader'
+} from '@/lib/constants/sceneConfig'
+import { disposeFrameMaterialCache } from '@/lib/materials/frameMaterials'
+import { disposeCoverMaterialCache } from '@/lib/materials/coverMaterials'
+import { clearGLBCache } from '@/lib/utils/GLBLoader'
 
 // ─── Re-export types ─────────────────────────────────────────────────────────
 
@@ -46,8 +46,8 @@ interface SceneSetupProps {
   cameraUpperRadiusLimit?: number
   /** Current camera view */
   cameraView?: CameraView
-  /** Callback when camera animation completes */
-  onCameraViewAnimated?: () => void
+  /** Called when user manually orbits — parent should reset cameraView to 'orbit' */
+  onCameraViewReset?: () => void
 }
 
 // ─── Sky Gradient Shader (default preset) ────────────────────────────────────
@@ -418,7 +418,7 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
 function animateCameraToView(
   camera: ArcRotateCamera,
   view: CameraView,
-  _target: Vector3,
+  target: Vector3,
   radius: number
 ): void {
   const fps = 60
@@ -455,7 +455,24 @@ function animateCameraToView(
     { frame: frames, value: radius * v.radiusMul },
   ])
 
-  scene.beginDirectAnimation(camera, [alphaAnim, betaAnim, radiusAnim], 0, frames, false)
+  // Target animation — smooth transition to new target
+  const targetXAnim = new Animation('targetXAnim', 'target.x', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
+  targetXAnim.setKeys([
+    { frame: 0, value: camera.target.x },
+    { frame: frames, value: target.x },
+  ])
+  const targetYAnim = new Animation('targetYAnim', 'target.y', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
+  targetYAnim.setKeys([
+    { frame: 0, value: camera.target.y },
+    { frame: frames, value: target.y },
+  ])
+  const targetZAnim = new Animation('targetZAnim', 'target.z', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
+  targetZAnim.setKeys([
+    { frame: 0, value: camera.target.z },
+    { frame: frames, value: target.z },
+  ])
+
+  scene.beginDirectAnimation(camera, [alphaAnim, betaAnim, radiusAnim, targetXAnim, targetYAnim, targetZAnim], 0, frames, false)
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -476,6 +493,7 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   cameraRadius,
   cameraUpperRadiusLimit,
   cameraView = 'orbit',
+  onCameraViewReset,
 }) => {
   const scene = useScene()
 
@@ -523,6 +541,47 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     if (!camera) return
     animateCameraToView(camera, cameraView, target, radius)
   }, [scene, cameraView])
+
+  // Reset cameraView to 'orbit' when user manually interacts with the camera
+  useEffect(() => {
+    if (!scene || !onCameraViewReset) return
+    const camera = scene.activeCamera as ArcRotateCamera | null
+    if (!camera) return
+
+    // Debounce: only fire once after user starts interacting
+    let isAnimating = false
+    const obs = camera.onAfterCheckInputsObservable.add(() => {
+      // Skip if we're in the middle of a programmatic animation
+      if (scene.getAllAnimatablesByTarget(camera).length > 0) {
+        isAnimating = true
+        return
+      }
+      // Only reset if we were NOT just animating (animation just ended)
+      if (isAnimating) {
+        isAnimating = false
+        return
+      }
+    })
+
+    // Detect actual user input via pointer events on the canvas
+    const canvas = scene.getEngine().getRenderingCanvas()
+    if (canvas) {
+      const handleUserInput = () => {
+        // Only reset if not currently in orbit and no active animations
+        if (cameraView !== 'orbit' && scene.getAllAnimatablesByTarget(camera).length === 0) {
+          onCameraViewReset()
+        }
+      }
+      canvas.addEventListener('pointerdown', handleUserInput)
+      return () => {
+        canvas.removeEventListener('pointerdown', handleUserInput)
+        camera.onAfterCheckInputsObservable.remove(obs)
+      }
+    }
+    return () => {
+      camera.onAfterCheckInputsObservable.remove(obs)
+    }
+  }, [scene, cameraView, onCameraViewReset])
 
   const { camera: camConfig } = SCENE_CONFIG
 

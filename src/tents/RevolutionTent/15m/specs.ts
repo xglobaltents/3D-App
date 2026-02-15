@@ -1,4 +1,4 @@
-import type { TentSpecs } from '../../../types'
+import type { TentSpecs } from '@/types'
 
 export const TENT_TYPE = 'RevolutionTent'
 export const VARIANT = '15m'

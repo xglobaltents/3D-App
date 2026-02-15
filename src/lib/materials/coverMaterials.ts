@@ -15,6 +15,32 @@ import { type Scene, PBRMaterial, Color3 } from '@babylonjs/core'
 
 const cache = new Map<string, PBRMaterial>()
 
+/**
+ * Get a cached material or create a new one via factory.
+ * Validates scene ownership \u2014 disposes stale entries from previous scenes.
+ * Same pattern as frameMaterials.ts for consistency.
+ */
+function getCachedOrCreate(
+  key: string,
+  scene: Scene,
+  factory: (mat: PBRMaterial) => void
+): PBRMaterial {
+  const existing = cache.get(key)
+  // Return cached material if it still belongs to the active scene
+  if (existing && existing.getScene() === scene) return existing
+  // Stale entry from a previous scene \u2014 dispose and recreate
+  if (existing) { try { existing.dispose() } catch { /* already gone */ } }
+  cache.delete(key)
+
+  const mat = new PBRMaterial(key, scene)
+  factory(mat)
+
+  // Freeze after setup \u2014 prevents Babylon from re-evaluating every frame
+  mat.freeze()
+  cache.set(key, mat)
+  return mat
+}
+
 // ─── Options ─────────────────────────────────────────────────────────────────
 
 export interface CoverMaterialOptions {
@@ -42,39 +68,29 @@ export function getCoverMaterial(
     options.name ??
     `cover-${options.color.toHexString()}-t${options.translucency ?? 0}`
 
-  const existing = cache.get(key)
-  // Return cached material if it still belongs to the active scene
-  if (existing && existing.getScene() === scene) return existing
-  // Stale entry from a previous scene — dispose and recreate
-  if (existing) { try { existing.dispose() } catch { /* already gone */ } }
+  return getCachedOrCreate(key, scene, (mat) => {
+    // PVC / fabric look
+    mat.albedoColor = options.color
+    mat.metallic = 0.0
+    mat.roughness = options.roughness ?? 0.65
+    mat.ambientColor = new Color3(0.1, 0.1, 0.1)
+    // TODO: Add bumpTexture (normal map) and microSurface roughness texture
+    // when fabric texture assets become available for improved weave detail.
 
-  const mat = new PBRMaterial(key, scene)
+    // Subsurface translucency \u2014 light bleeding through fabric
+    const t = options.translucency ?? 0
+    if (t > 0) {
+      mat.subSurface.isTranslucencyEnabled = true
+      mat.subSurface.translucencyIntensity = t
+      mat.subSurface.tintColor = options.color.scale(0.8)
+    }
 
-  // PVC / fabric look
-  mat.albedoColor = options.color
-  mat.metallic = 0.0
-  mat.roughness = options.roughness ?? 0.65
-  mat.ambientColor = new Color3(0.1, 0.1, 0.1)
-  // TODO: Add bumpTexture (normal map) and microSurface roughness texture
-  // when fabric texture assets become available for improved weave detail.
+    // Two-sided \u2014 covers are visible from inside the tent
+    mat.backFaceCulling = false
 
-  // Subsurface translucency — light bleeding through fabric
-  const t = options.translucency ?? 0
-  if (t > 0) {
-    mat.subSurface.isTranslucencyEnabled = true
-    mat.subSurface.translucencyIntensity = t
-    mat.subSurface.tintColor = options.color.scale(0.8)
-  }
-
-  // Two-sided — covers are visible from inside the tent
-  mat.backFaceCulling = false
-
-  // Specular AA prevents sparkling on PVC at glancing angles
-  mat.enableSpecularAntiAliasing = true
-
-  mat.freeze()
-  cache.set(key, mat)
-  return mat
+    // Specular AA prevents sparkling on PVC at glancing angles
+    mat.enableSpecularAntiAliasing = true
+  })
 }
 
 // ─── Presets ─────────────────────────────────────────────────────────────────

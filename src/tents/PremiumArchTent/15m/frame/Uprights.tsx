@@ -1,9 +1,9 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from 'react-babylonjs'
 import { Mesh, TransformNode, Vector3 } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, type InstanceTransform } from '../../../../lib/utils/GLBLoader'
-import { getAluminumMaterial } from '../../../../lib/materials/frameMaterials'
-import type { TentSpecs } from '../../../../types'
+import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import type { TentSpecs } from '@/types'
 import { FRAME_PATH } from '../specs'
 
 interface UprightsProps {
@@ -16,6 +16,9 @@ interface UprightsProps {
 /** Cached bounds result to avoid repeated computeWorldMatrix calls (#14). */
 interface BoundsResult { min: Vector3; max: Vector3; size: Vector3 }
 const boundsCache = new Map<string, BoundsResult>()
+
+/** Invalidate all cached bounds — call when tent specs change. */
+export function clearUprightsBoundsCache(): void { boundsCache.clear() }
 
 function measureWorldBounds(meshes: Mesh[], cacheKey?: string): BoundsResult {
 	if (cacheKey) {
@@ -101,9 +104,9 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 
 				// Per-axis scaling to match profile specs
 				template.computeWorldMatrix(true)
-				const rotatedBounds = measureWorldBounds(templateMeshes, 'uprights-rotated')
 
 				const profile = specs.profiles.upright
+				const rotatedBounds = measureWorldBounds(templateMeshes, `uprights-rotated-${profile.width}-${profile.height}-${specs.eaveHeight}`)
 				if (rotatedBounds.size.x > 0) {
 					template.scaling.x = profile.width / rotatedBounds.size.x
 				}

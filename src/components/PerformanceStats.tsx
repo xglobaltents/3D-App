@@ -44,6 +44,7 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
   const prevMeshCountRef = useRef<number>(-1)
   const cachedBreakdownRef = useRef<MeshBreakdown[]>([])
   const cachedTrianglesRef = useRef<number>(0)
+  const cachedVerticesRef = useRef<number>(0)
 
   useEffect(() => {
     const updateStats = () => {
@@ -59,6 +60,7 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
         instrumentationRef.current.captureFrameTime = true
         instrumentationRef.current.captureRenderTime = true
         instrumentationRef.current.captureInterFrameTime = true
+        instrumentationRef.current.captureDrawCalls = true
       }
 
       // Only recalculate mesh breakdown when mesh count changes
@@ -66,12 +68,13 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
       if (currentMeshCount !== prevMeshCountRef.current) {
         prevMeshCountRef.current = currentMeshCount
         let totalTriangles = 0
+        let totalVertices = 0
         const meshMap = new Map<string, { triangles: number; vertices: number }>()
 
         for (const mesh of scene.meshes) {
           if (mesh.isEnabled() && mesh.isVisible && mesh.getTotalIndices) {
             const indices = mesh.getTotalIndices()
-            const vertices = mesh.getTotalVertices?.() ?? 0
+            let vertices = mesh.getTotalVertices?.() ?? 0
 
             // Handle non-indexed geometry (e.g. CAD-exported GLBs with no
             // index buffer): fall back to vertices / 3.
@@ -83,9 +86,11 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
             const instanceCount = (mesh as unknown as { thinInstanceCount?: number }).thinInstanceCount
             if (instanceCount && instanceCount > 0) {
               triangles *= instanceCount
+              vertices *= instanceCount
             }
 
             totalTriangles += triangles
+            totalVertices += vertices
 
             // Walk the parent chain past __root__ nodes to find the
             // component TransformNode (e.g. "uprights-root")
@@ -123,22 +128,31 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
           .map(([name, data]) => ({ name, ...data }))
           .sort((a, b) => b.triangles - a.triangles)
         cachedTrianglesRef.current = totalTriangles
+        cachedVerticesRef.current = totalVertices
       }
 
       // Detect engine type
       const isWebGPU = engine instanceof WebGPUEngine || engine.name === 'WebGPU'
 
-      // Use the scene instrumentation's draw call count (v8 compatible)
-      const drawCalls = (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current ?? 0
+      // Draw calls: use instrumentation render time counter as a proxy for
+      // actual GPU submissions. engine._drawCalls is WebGL-only and always
+      // reads 0 on WebGPU.
+      const instrumentation = instrumentationRef.current
+      const drawCalls = instrumentation.drawCallsCounter?.current
+        ?? (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current
+        ?? 0
+
+      // Visible vs hidden mesh counts
+      const visibleMeshes = scene.meshes.filter(m => m.isEnabled() && m.isVisible).length
 
       setStats({
         fps: Math.round(engine.getFps()),
-        frameTime: parseFloat(instrumentationRef.current.frameTimeCounter.lastSecAverage.toFixed(2)),
+        frameTime: parseFloat(instrumentation.frameTimeCounter.lastSecAverage.toFixed(2)),
         drawCalls,
         triangles: cachedTrianglesRef.current,
-        vertices: scene.getTotalVertices?.() ?? 0,
+        vertices: cachedVerticesRef.current,
         activeMeshes: scene.getActiveMeshes?.().length ?? 0,
-        totalMeshes: currentMeshCount,
+        totalMeshes: visibleMeshes,
         materials: scene.materials.length,
         textures: scene.textures.length,
         engineType: isWebGPU ? 'WebGPU' : 'WebGL',

@@ -1,9 +1,9 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from 'react-babylonjs'
 import { TransformNode, Mesh, Vector3 } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, type InstanceTransform } from '../../lib/utils/GLBLoader'
-import { getAluminumMaterial } from '../../lib/materials/frameMaterials'
-import type { TentSpecs } from '../../types'
+import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import type { TentSpecs } from '@/types'
 
 interface BaseplatesProps {
 	numBays: number
@@ -15,6 +15,9 @@ interface BaseplatesProps {
 /** Cached bounds result to avoid repeated computeWorldMatrix calls (#14). */
 interface BoundsResult { min: Vector3; max: Vector3; size: Vector3 }
 const boundsCache = new Map<string, BoundsResult>()
+
+/** Invalidate all cached bounds — call when tent specs change. */
+export function clearBoundsCache(): void { boundsCache.clear() }
 
 function measureWorldBounds(meshes: Mesh[], cacheKey?: string): BoundsResult {
 	if (cacheKey) {
@@ -94,10 +97,9 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 				// GLB from 3D scan — already Y-up, no rotation needed
 
 				// Uniform scaling to preserve the real scanned shape.
-				template.computeWorldMatrix(true)
-				const rawBounds = measureWorldBounds(templateMeshes, 'baseplates-raw')
-
 				const bp = specs.baseplate
+				template.computeWorldMatrix(true)
+				const rawBounds = measureWorldBounds(templateMeshes, `baseplates-raw-${bp.width}`)
 				if (rawBounds.size.x > 0) {
 					const uniformScale = bp.width / rawBounds.size.x
 					template.scaling.setAll(uniformScale)

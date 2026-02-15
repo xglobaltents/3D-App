@@ -1,5 +1,5 @@
-import type { TentSpecs } from '../../../types'
-import { getFramePath, getConnectorsPath, getCoversPath } from '../../../lib/constants/assetPaths'
+import type { TentSpecs } from '@/types'
+import { getFramePath, getConnectorsPath, getCoversPath } from '@/lib/constants/assetPaths'
 
 export const TENT_TYPE = 'PremiumArchTent'
 export const VARIANT = '15m'
