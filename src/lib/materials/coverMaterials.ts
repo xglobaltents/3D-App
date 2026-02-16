@@ -123,6 +123,21 @@ export function getBeigeCoverMaterial(scene: Scene): PBRMaterial {
   })
 }
 
+// ─── Refresh (after environment change) ──────────────────────────────────────
+
+/**
+ * Unfreeze → refreeze all cached cover materials so they pick up
+ * a new scene.environmentTexture / IBL.
+ */
+export function refreshCoverMaterialCache(): void {
+  for (const mat of cache.values()) {
+    try {
+      mat.unfreeze()
+      mat.freeze()
+    } catch { /* disposed */ }
+  }
+}
+
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 /**

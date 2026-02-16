@@ -94,6 +94,22 @@ export function getDarkMetalMaterial(scene: Scene): PBRMaterial {
   })
 }
 
+// ─── Refresh (after environment change) ──────────────────────────────────────
+
+/**
+ * Unfreeze → refreeze all cached frame materials so they pick up
+ * a new scene.environmentTexture / IBL. Without this, frozen PBR
+ * materials keep stale shader defines and render white.
+ */
+export function refreshFrameMaterialCache(): void {
+  for (const mat of cache.values()) {
+    try {
+      mat.unfreeze()
+      mat.freeze()
+    } catch { /* disposed */ }
+  }
+}
+
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 /**

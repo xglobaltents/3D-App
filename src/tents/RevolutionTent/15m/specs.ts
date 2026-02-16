@@ -24,6 +24,7 @@ export const TENT_SPECS: TentSpecs = {
     width: 0.45,
     depth: 0.35,
     thickness: 0.012,
+    height: 0.30,
   },
   gableSupportPositions: [-2.5, 2.5],
   mainPurlinX: [-2.5, 2.5],

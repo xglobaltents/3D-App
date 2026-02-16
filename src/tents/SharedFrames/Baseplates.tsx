@@ -59,6 +59,9 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 		const controller = new AbortController()
 		abortRef.current = controller
 
+		// Clear stale bounds from previous loads
+		boundsCache.clear()
+
 		const root = new TransformNode('baseplates-root', scene)
 		const allDisposables: (Mesh | TransformNode)[] = [root]
 		const aluminumMat = getAluminumMaterial(scene)
@@ -85,6 +88,7 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 				for (const m of templateMeshes) {
 					m.rotationQuaternion = null
 					m.rotation.set(0, 0, 0)
+					m.position.setAll(0)
 					m.scaling.setAll(1)
 					m.parent = template
 				}
@@ -93,7 +97,9 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 				template.rotation.set(0, 0, 0)
 				template.scaling.setAll(1)
 
-				// GLB from 3D scan — already Y-up, no rotation needed
+				// GLB is Y-up but oriented along X — rotate 90° around Y
+				// so the baseplate's length aligns with the tent's Z (length) axis.
+				template.rotation.y = Math.PI / 2
 
 				// Uniform scaling to preserve the real scanned shape.
 				const bp = specs.baseplate
@@ -121,6 +127,7 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 					for (const side of [-1, 1] as const) {
 						transforms.push({
 							position: new Vector3(side * halfWidth, groundY, z),
+							rotation: template.rotation.clone(),
 							scaling: template.scaling.clone(),
 						})
 					}
@@ -129,6 +136,14 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 				// Apply thin instances to each mesh with geometry
 				for (const src of templateMeshes) {
 					src.parent = root
+
+					// Reset local transform to identity — thin instance matrices
+					// already carry the full rotation/scaling transform.
+					src.position.setAll(0)
+					src.rotationQuaternion = null
+					src.rotation.setAll(0)
+					src.scaling.setAll(1)
+
 					src.setEnabled(true)
 					src.material = aluminumMat
 					createFrozenThinInstances(src, transforms)

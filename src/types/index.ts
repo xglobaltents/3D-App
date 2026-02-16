@@ -36,6 +36,8 @@ export interface BaseplateSpecs {
   width: number
   depth: number
   thickness: number
+  /** Visual height of the full baseplate assembly (plate + flanges) after uniform scaling. */
+  height: number
 }
 
 // ─── Component Props ─────────────────────────────────────────────────────────

@@ -25,9 +25,8 @@ import {
   getStudioPresetColors,
   type EnvironmentPreset,
 } from '@/lib/constants/sceneConfig'
-import { disposeFrameMaterialCache } from '@/lib/materials/frameMaterials'
-import { disposeCoverMaterialCache } from '@/lib/materials/coverMaterials'
-import { clearGLBCache } from '@/lib/utils/GLBLoader'
+import { refreshFrameMaterialCache } from '@/lib/materials/frameMaterials'
+import { refreshCoverMaterialCache } from '@/lib/materials/coverMaterials'
 
 // ─── Re-export types ─────────────────────────────────────────────────────────
 
@@ -292,9 +291,6 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
       groundTex.dispose()
       skyDome.dispose()
       skyMat.dispose()
-      clearGLBCache(scene)
-      disposeFrameMaterialCache()
-      disposeCoverMaterialCache()
     },
   }
 }
@@ -406,9 +402,6 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
         envTex.dispose()
         scene.environmentTexture = null
       }
-      clearGLBCache(scene)
-      disposeFrameMaterialCache()
-      disposeCoverMaterialCache()
     },
   }
 }
@@ -557,6 +550,11 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     } else {
       env = setupStudioEnvironment(scene, environmentPreset)
     }
+
+    // Frozen PBR materials cache shader defines — unfreeze/refreeze so they
+    // pick up the new scene.environmentTexture (IBL) after an env switch.
+    refreshFrameMaterialCache()
+    refreshCoverMaterialCache()
 
     return () => {
       env.dispose()

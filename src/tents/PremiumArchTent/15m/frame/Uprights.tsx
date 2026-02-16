@@ -64,6 +64,9 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 		const controller = new AbortController()
 		abortRef.current = controller
 
+		// Clear stale bounds from previous loads
+		boundsCache.clear()
+
 		const root = new TransformNode('uprights-root', scene)
 		const allDisposables: (Mesh | TransformNode)[] = [root]
 		const aluminumMat = getAluminumMaterial(scene)
@@ -90,6 +93,7 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 				for (const m of templateMeshes) {
 					m.rotationQuaternion = null
 					m.rotation.set(0, 0, 0)
+					m.position.setAll(0)
 					m.scaling.setAll(1)
 					m.parent = template
 				}
@@ -118,10 +122,10 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 					template.scaling.y = profile.height / rotatedBounds.size.z
 				}
 
-				// Find ground offset
+				// Find ground offset — uprights sit on top of baseplates
 				template.computeWorldMatrix(true)
 				const { min: finalMin } = measureWorldBounds(templateMeshes)
-				const groundY = -finalMin.y
+				const groundY = -finalMin.y + specs.baseplate.height
 
 				// ── Build thin instance transforms ──
 				const halfWidth = specs.width / 2
