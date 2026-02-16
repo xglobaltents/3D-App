@@ -14,8 +14,6 @@ export default defineConfig({
       '@babylonjs/loaders/glTF',
       '@babylonjs/materials',
       '@babylonjs/gui',
-      'react-babylonjs',
-      'react-reconciler',
     ],
   },
   resolve: {
@@ -33,7 +31,6 @@ export default defineConfig({
             '@babylonjs/loaders',
             '@babylonjs/materials',
             '@babylonjs/gui',
-            'react-babylonjs',
           ],
           'react-vendor': [
             'react',

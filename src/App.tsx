@@ -1,6 +1,7 @@
 import { useState, useCallback, useRef, type ErrorInfo, Component, type ReactNode } from 'react'
-import { FallbackEngine, Scene } from 'react-babylonjs'
 import '@babylonjs/loaders/glTF'
+
+import { BabylonProvider } from '@/engine/BabylonProvider'
 
 import { SceneSetup, type EnvironmentPreset, type CameraView } from '@/components/SceneSetup'
 import { PerformanceStats } from '@/components/PerformanceStats'
@@ -135,12 +136,7 @@ function App() {
   return (
     <SceneErrorBoundary>
       <div id="canvas-container">
-        <FallbackEngine 
-          canvasId="babylon-canvas"
-          engineProps={{ antialias: true, adaptToDeviceRatio: true }}
-          webGPUEngineProps={{ webGPUEngineOptions: { antialias: true } }}
-        >
-          <Scene>
+        <BabylonProvider canvasId="babylon-canvas">
             <SceneSetup
               environmentPreset={environmentPreset}
               cameraTarget={cameraConfig.target}
@@ -166,8 +162,7 @@ function App() {
                 />
               </>
             )}
-          </Scene>
-        </FallbackEngine>
+        </BabylonProvider>
 
         {/* (#22) Loading indicator */}
         {isLoading && (

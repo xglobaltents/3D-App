@@ -1,5 +1,5 @@
 import { type FC, useEffect, memo, useRef } from 'react'
-import { useScene } from 'react-babylonjs'
+import { useScene } from '@/engine/BabylonProvider'
 import { Mesh, TransformNode, Vector3 } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
@@ -74,6 +74,7 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 			.then((loaded) => {
 				if (controller.signal.aborted) {
 					for (const m of loaded) m.dispose()
+					onLoadStateChange?.(false)
 					return
 				}
 

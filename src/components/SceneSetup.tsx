@@ -1,5 +1,5 @@
-import { type FC, useEffect, useMemo } from 'react'
-import { useScene } from 'react-babylonjs'
+import { type FC, useEffect, useMemo, useRef } from 'react'
+import { useScene } from '@/engine/BabylonProvider'
 import {
   ArcRotateCamera,
   Color4,
@@ -496,6 +496,7 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   onCameraViewReset,
 }) => {
   const scene = useScene()
+  const cameraRef = useRef<ArcRotateCamera | null>(null)
 
   // Default camera values
   const target = useMemo(
@@ -505,15 +506,51 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   const radius = cameraRadius ?? 25
   const upperLimit = cameraUpperRadiusLimit ?? 150
 
+  const { camera: camConfig } = SCENE_CONFIG
+
+  // ── Create camera (once) ──
   useEffect(() => {
     if (!scene) return
 
-    // Attach camera
-    const camera = scene.activeCamera
     const canvas = scene.getEngine().getRenderingCanvas()
-    if (camera && canvas) camera.attachControl(canvas, true)
+    const camera = new ArcRotateCamera(
+      'main-camera',
+      Math.PI / 4,
+      Math.PI / 3,
+      radius,
+      target.clone(),
+      scene
+    )
 
-    // Build environment for the active preset
+    // Apply config
+    camera.minZ = camConfig.minZ
+    camera.wheelPrecision = camConfig.wheelPrecision
+    camera.panningSensibility = camConfig.panningSensibility
+    camera.lowerRadiusLimit = 5
+    camera.upperRadiusLimit = upperLimit
+    camera.lowerBetaLimit = camConfig.lowerBetaLimit
+    camera.upperBetaLimit = camConfig.upperBetaLimit
+    camera.inertia = camConfig.inertia
+    camera.panningInertia = camConfig.panningInertia
+    camera.pinchPrecision = camConfig.pinchPrecision
+    camera.angularSensibilityX = camConfig.angularSensibilityX
+    camera.angularSensibilityY = camConfig.angularSensibilityY
+
+    if (canvas) camera.attachControl(canvas, true)
+    scene.activeCamera = camera
+    cameraRef.current = camera
+
+    return () => {
+      if (canvas) camera.detachControl()
+      camera.dispose()
+      cameraRef.current = null
+    }
+  }, [scene]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Environment setup (rebuilds on preset change) ──
+  useEffect(() => {
+    if (!scene) return
+
     let env: Disposable
     if (environmentPreset === 'default') {
       env = setupDefaultEnvironment(scene)
@@ -523,26 +560,24 @@ export const SceneSetup: FC<SceneSetupProps> = ({
 
     return () => {
       env.dispose()
-      if (camera && canvas) camera.detachControl()
     }
   }, [scene, environmentPreset])
 
   // (#1) Update camera target/radius reactively when tent dimensions change
   /* eslint-disable react-hooks/immutability */
   useEffect(() => {
-    if (!scene) return
-    const camera = scene.activeCamera as ArcRotateCamera | null
+    const camera = cameraRef.current
     if (!camera) return
     camera.setTarget(target)
     camera.radius = radius
     camera.upperRadiusLimit = upperLimit
-  }, [scene, target, radius, upperLimit])
+  }, [target, radius, upperLimit])
   /* eslint-enable react-hooks/immutability */
 
   // (#2) Animate camera on view changes
   useEffect(() => {
     if (!scene) return
-    const camera = scene.activeCamera as ArcRotateCamera | null
+    const camera = cameraRef.current
     if (!camera) return
     animateCameraToView(camera, cameraView, target, radius)
   }, [scene, cameraView, target, radius])
@@ -550,7 +585,7 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   // Reset cameraView to 'orbit' when user manually interacts with the camera
   useEffect(() => {
     if (!scene || !onCameraViewReset) return
-    const camera = scene.activeCamera as ArcRotateCamera | null
+    const camera = cameraRef.current
     if (!camera) return
 
     // Debounce: only fire once after user starts interacting
@@ -588,27 +623,5 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     }
   }, [scene, cameraView, onCameraViewReset])
 
-  const { camera: camConfig } = SCENE_CONFIG
-
-  return (
-    <arcRotateCamera
-      name="main-camera"
-      alpha={Math.PI / 4}
-      beta={Math.PI / 3}
-      radius={radius}
-      target={target}
-      minZ={camConfig.minZ}
-      wheelPrecision={camConfig.wheelPrecision}
-      panningSensibility={camConfig.panningSensibility}
-      lowerRadiusLimit={5}
-      upperRadiusLimit={upperLimit}
-      lowerBetaLimit={camConfig.lowerBetaLimit}
-      upperBetaLimit={camConfig.upperBetaLimit}
-      inertia={camConfig.inertia}
-      panningInertia={camConfig.panningInertia}
-      pinchPrecision={camConfig.pinchPrecision}
-      angularSensibilityX={camConfig.angularSensibilityX}
-      angularSensibilityY={camConfig.angularSensibilityY}
-    />
-  )
+  return null
 }

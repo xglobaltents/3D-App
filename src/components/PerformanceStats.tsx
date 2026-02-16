@@ -60,7 +60,6 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
         instrumentationRef.current.captureFrameTime = true
         instrumentationRef.current.captureRenderTime = true
         instrumentationRef.current.captureInterFrameTime = true
-        instrumentationRef.current.captureDrawCalls = true
       }
 
       // Only recalculate mesh breakdown when mesh count changes
