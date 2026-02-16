@@ -17,8 +17,6 @@ interface UprightsProps {
 interface BoundsResult { min: Vector3; max: Vector3; size: Vector3 }
 const boundsCache = new Map<string, BoundsResult>()
 
-/** Invalidate all cached bounds — call when tent specs change. */
-export function clearUprightsBoundsCache(): void { boundsCache.clear() }
 
 function measureWorldBounds(meshes: Mesh[], cacheKey?: string): BoundsResult {
 	if (cacheKey) {

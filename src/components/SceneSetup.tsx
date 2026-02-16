@@ -1,4 +1,4 @@
-import { type FC, useEffect } from 'react'
+import { type FC, useEffect, useMemo } from 'react'
 import { useScene } from 'react-babylonjs'
 import {
   ArcRotateCamera,
@@ -498,7 +498,10 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   const scene = useScene()
 
   // Default camera values
-  const target = cameraTarget ?? new Vector3(0, 3, 0)
+  const target = useMemo(
+    () => (cameraTarget ? cameraTarget.clone() : new Vector3(0, 3, 0)),
+    [cameraTarget]
+  )
   const radius = cameraRadius ?? 25
   const upperLimit = cameraUpperRadiusLimit ?? 150
 
@@ -525,14 +528,16 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   }, [scene, environmentPreset])
 
   // (#1) Update camera target/radius reactively when tent dimensions change
+  /* eslint-disable react-hooks/immutability */
   useEffect(() => {
     if (!scene) return
     const camera = scene.activeCamera as ArcRotateCamera | null
     if (!camera) return
-    camera.target = target.clone()
+    camera.setTarget(target)
     camera.radius = radius
     camera.upperRadiusLimit = upperLimit
-  }, [scene, target.x, target.y, target.z, radius, upperLimit])
+  }, [scene, target, radius, upperLimit])
+  /* eslint-enable react-hooks/immutability */
 
   // (#2) Animate camera on view changes
   useEffect(() => {
@@ -540,7 +545,7 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     const camera = scene.activeCamera as ArcRotateCamera | null
     if (!camera) return
     animateCameraToView(camera, cameraView, target, radius)
-  }, [scene, cameraView])
+  }, [scene, cameraView, target, radius])
 
   // Reset cameraView to 'orbit' when user manually interacts with the camera
   useEffect(() => {

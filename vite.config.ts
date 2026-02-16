@@ -31,6 +31,7 @@ export default defineConfig({
     },
   },
   server: {
+    open: true,
     hmr: {
       overlay: true,
     },
@@ -38,5 +39,8 @@ export default defineConfig({
       usePolling: true,
       interval: 100,
     },
+  },
+  preview: {
+    open: true,
   },
 })
