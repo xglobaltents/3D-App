@@ -122,10 +122,14 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 					template.scaling.y = profile.height / rotatedBounds.size.z
 				}
 
-				// Find ground offset — uprights sit on top of baseplates
+				// Compute center offset after rotation + asymmetric scaling.
 				template.computeWorldMatrix(true)
-				const { min: finalMin } = measureWorldBounds(templateMeshes)
-				const groundY = -finalMin.y + specs.baseplate.height
+				const finalBounds = measureWorldBounds(templateMeshes)
+				const centerOffsetX = (finalBounds.min.x + finalBounds.max.x) / 2
+				const centerOffsetZ = (finalBounds.min.z + finalBounds.max.z) / 2
+
+				// Uprights sit on top of baseplates
+				const groundY = -finalBounds.min.y + specs.baseplate.height
 
 				// ── Build thin instance transforms ──
 				const halfWidth = specs.width / 2
@@ -138,7 +142,11 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 					const z = i * specs.bayDistance - halfLength
 					for (const side of [-1, 1] as const) {
 						transforms.push({
-							position: new Vector3(side * halfWidth, groundY, z),
+							position: new Vector3(
+								side * halfWidth - centerOffsetX,
+								groundY,
+								z - centerOffsetZ,
+							),
 							rotation: template.rotation.clone(),
 							scaling: template.scaling.clone(),
 						})

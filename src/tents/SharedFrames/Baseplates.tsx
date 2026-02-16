@@ -97,23 +97,31 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 				template.rotation.set(0, 0, 0)
 				template.scaling.setAll(1)
 
-				// GLB is Y-up but oriented along X — rotate 90° around Y
-				// so the baseplate's length aligns with the tent's Z (length) axis.
+				// Rotate 90° around Y so the baseplate's longer side aligns
+				// with the tent's Z (length) axis.
 				template.rotation.y = Math.PI / 2
 
 				// Uniform scaling to preserve the real scanned shape.
 				const bp = specs.baseplate
 				template.computeWorldMatrix(true)
-				const rawBounds = measureWorldBounds(templateMeshes, `baseplates-raw-${bp.width}`)
+				const rawBounds = measureWorldBounds(templateMeshes)
 				if (rawBounds.size.x > 0) {
 					const uniformScale = bp.width / rawBounds.size.x
 					template.scaling.setAll(uniformScale)
 				}
 
-				// Find ground offset
+				// Compute center offset after rotation + scaling.
+				// The baseplate model may not be perfectly symmetric, so after
+				// rotation the bounding-box center can shift from the origin.
+				// We compensate in the thin instance positions (not mesh positions,
+				// which get reset to identity before instancing).
 				template.computeWorldMatrix(true)
-				const { min: finalMin } = measureWorldBounds(templateMeshes)
-				const groundY = -finalMin.y
+				const scaledBounds = measureWorldBounds(templateMeshes)
+				const centerOffsetX = (scaledBounds.min.x + scaledBounds.max.x) / 2
+				const centerOffsetZ = (scaledBounds.min.z + scaledBounds.max.z) / 2
+
+				// Find ground offset (Y only)
+				const groundY = -scaledBounds.min.y
 
 				// ── Build thin instance transforms ──
 				const halfWidth = specs.width / 2
@@ -126,7 +134,11 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 					const z = i * specs.bayDistance - halfLength
 					for (const side of [-1, 1] as const) {
 						transforms.push({
-							position: new Vector3(side * halfWidth, groundY, z),
+							position: new Vector3(
+								side * halfWidth - centerOffsetX,
+								groundY,
+								z - centerOffsetZ,
+							),
 							rotation: template.rotation.clone(),
 							scaling: template.scaling.clone(),
 						})
