@@ -250,8 +250,9 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
     scene.environmentTexture = null
   }
 
-  // (#9) Fallback clearColor in case sky dome fails
-  scene.clearColor = new Color4(0.75, 0.85, 0.92, 1.0)
+  // Clear color matches sky horizon so background is always sky-coloured,
+  // even if the sky dome shader isn't compiled yet on the first frame.
+  scene.clearColor = new Color4(gc.horizon.r, gc.horizon.g, gc.horizon.b, 1.0)
 
   // ── Shadow generator (sun) ──
   const ds = defaultShadow
@@ -266,7 +267,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, skyDome])
 
   // ── Scene settings ──
-  scene.autoClear = false           // sky dome covers background
+  scene.autoClear = true            // always clear colour buffer to prevent ground bleeding into sky
   scene.autoClearDepthAndStencil = true
   scene.fogMode = BScene.FOGMODE_NONE
 
