@@ -27,27 +27,25 @@ import type { EnvironmentPreset } from '@/lib/constants/sceneConfig'
 // ─── Material Cache ──────────────────────────────────────────────────────────
 
 const cache = new Map<string, PBRMaterial>()
-let currentEnvironmentPreset: EnvironmentPreset = 'default'
+let currentPreset: EnvironmentPreset = 'default'
 
-function applyAluminumProfile(mat: PBRMaterial, preset: EnvironmentPreset): void {
-  if (preset === 'white') {
-    mat.albedoColor = new Color3(0.58, 0.60, 0.62)
-    mat.environmentIntensity = 0.45
-    mat.directIntensity = 0.88
-    mat.specularIntensity = 0.4
-    return
+/**
+ * Per-preset directIntensity to compensate for different total scene light.
+ *
+ * Total light power arriving at a surface:
+ *   default  → hemi 0.8 + sun 1.5 + fill 0.8 + bottom 0.3 ≈ 3.4
+ *   white    → hemi 0.8 + dir 1.2                          ≈ 2.0
+ *   black    → hemi 0.35 + dir 0.7                         ≈ 1.05
+ *
+ * We pick directIntensity values that yield the same apparent brightness.
+ * All other material properties stay identical → same colour / reflections.
+ */
+function getDirectIntensityForPreset(preset: EnvironmentPreset): number {
+  switch (preset) {
+    case 'white': return 1.35
+    case 'black': return 2.5
+    default:      return 0.85   // default env (brightest lights)
   }
-  if (preset === 'black') {
-    mat.albedoColor = new Color3(0.66, 0.68, 0.70)
-    mat.environmentIntensity = 0.62
-    mat.directIntensity = 1.05
-    mat.specularIntensity = 0.52
-    return
-  }
-  mat.albedoColor = new Color3(0.62, 0.64, 0.66)
-  mat.environmentIntensity = 0.55
-  mat.directIntensity = 0.95
-  mat.specularIntensity = 0.45
 }
 
 function getCachedOrCreate(
@@ -76,35 +74,45 @@ function getCachedOrCreate(
  * Brushed-aluminum PBR material.
  * Suitable for baseplates, uprights, purlins, beams.
  *
- * Low metallic + high direct intensity = reads from lights, not env.
- * Consistent across outdoor, white studio, black studio.
+ * Same albedo, metallic, roughness, reflectivity across all environments.
+ * Only `directIntensity` is adjusted per-preset to compensate for the
+ * different total light power in each environment rig, keeping the
+ * perceived brightness consistent.
+ *
+ * `environmentIntensity = 0` so IBL / env-texture switches have zero
+ * visual effect on the aluminum.
  */
 export function getAluminumMaterial(scene: Scene): PBRMaterial {
   return getCachedOrCreate('shared-aluminum-frame', scene, (mat) => {
-    // Physically-plausible brushed aluminum profile.
-    // Preset compensation keeps visual output consistent across env switches.
-    mat.metallic = 0.92
-    mat.roughness = 0.42
-    mat.microSurface = 0.58
-    applyAluminumProfile(mat, currentEnvironmentPreset)
-    mat.useRadianceOverAlpha = true
-    mat.useSpecularOverAlpha = true
+    mat.albedoColor = new Color3(0.62, 0.64, 0.66)
 
+    mat.metallic = 0.18
+    mat.roughness = 0.45
+
+    mat.environmentIntensity = 0
+    mat.directIntensity = getDirectIntensityForPreset(currentPreset)
+    mat.specularIntensity = 0.7
+    mat.reflectivityColor = new Color3(0.45, 0.43, 0.40)
+
+    mat.useRadianceOverAlpha = false
+    mat.useSpecularOverAlpha = true
     mat.enableSpecularAntiAliasing = true
     mat.backFaceCulling = true
   })
 }
 
 export function setFrameMaterialEnvironmentProfile(preset: EnvironmentPreset): void {
-  currentEnvironmentPreset = preset
+  currentPreset = preset
 
   const aluminum = cache.get('shared-aluminum-frame')
   if (!aluminum) return
 
-  // Material is not frozen — just update properties directly.
-  // Babylon will pick up the changes on the next render.
-  applyAluminumProfile(aluminum, preset)
+  // Only directIntensity changes — compensates different light totals.
+  aluminum.directIntensity = getDirectIntensityForPreset(preset)
 }
+
+// Re-export the type so call-sites don't need a separate import.
+export type { EnvironmentPreset } from '@/lib/constants/sceneConfig'
 
 // ─── Steel (heavier structural parts) ────────────────────────────────────────
 
