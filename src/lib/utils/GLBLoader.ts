@@ -83,13 +83,17 @@ export async function loadGLB(
   return cloneTemplates(result.meshes)
 }
 
-/** Clone template meshes safely — never returns the hidden template itself. */
+/**
+ * Clone template meshes safely — never returns the hidden template itself.
+ * Clones start DISABLED to prevent rendering with null/wrong material.
+ * Callers must call setEnabled(true) after applying the correct material.
+ */
 function cloneTemplates(templates: AbstractMesh[]): AbstractMesh[] {
   const result: AbstractMesh[] = []
   for (const m of templates) {
     const clone = m.clone(m.name, null)
     if (clone) {
-      clone.setEnabled(true)
+      clone.setEnabled(false)  // stay hidden until material is applied
       result.push(clone)
     }
     // If clone fails, skip — do NOT return the hidden template (#30)
@@ -183,21 +187,35 @@ export function addThinInstance(mesh: Mesh, transform: InstanceTransform): numbe
  *
  * Always call this on GLB-loaded meshes so that default embedded
  * materials don't waste GPU memory or override code-defined looks.
+ *
+ * IMPORTANT: We do NOT call dispose(true, true) on GLB materials.
+ * Cloned meshes share geometry with cached templates, and Material.dispose()
+ * releases VAOs from shared geometry and can destroy shared shader effects —
+ * causing black / wrong-colour rendering on subsequent re-creates (e.g. bay
+ * count change).  Instead we detach the old material, collect unique refs,
+ * and dispose safely with notBoundToMesh=true, forceDisposeEffect=false.
  */
 export function stripAndApplyMaterial(
   meshes: AbstractMesh[],
   material?: Material
 ): void {
+  const toDispose = new Set<Material>()
   for (const mesh of meshes) {
     if (mesh instanceof Mesh) {
-      // Dispose the GLB's embedded material + its textures
-      if (mesh.material) {
-        mesh.material.dispose(true, true)
-      }
-      if (material) {
-        mesh.material = material
+      const oldMat = mesh.material
+      // Detach old material FIRST, then mark for disposal
+      mesh.material = material ?? null
+      if (oldMat && oldMat !== material) {
+        toDispose.add(oldMat)
       }
     }
+  }
+  // Dispose old GLB materials safely:
+  //  - forceDisposeEffect  = false → keep shared shader programs intact
+  //  - forceDisposeTextures = true  → free embedded GLB textures
+  //  - notBoundToMesh       = true  → don't iterate scene meshes / release VAOs
+  for (const mat of toDispose) {
+    try { mat.dispose(false, true, true) } catch { /* already gone */ }
   }
 }
 

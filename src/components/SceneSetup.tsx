@@ -25,7 +25,7 @@ import {
   getStudioPresetColors,
   type EnvironmentPreset,
 } from '@/lib/constants/sceneConfig'
-import { refreshFrameMaterialCache } from '@/lib/materials/frameMaterials'
+import { refreshFrameMaterialCache, setFrameMaterialEnvironmentProfile } from '@/lib/materials/frameMaterials'
 import { refreshCoverMaterialCache } from '@/lib/materials/coverMaterials'
 
 // ─── Re-export types ─────────────────────────────────────────────────────────
@@ -130,6 +130,68 @@ function registerShadowCasters(
   }
 }
 
+// ─── Procedural Environment Fallback ─────────────────────────────────────────
+
+/**
+ * Create a minimal procedural environment cubemap from scene lights.
+ * This gives PBR materials something to reflect when the .env file is
+ * missing (404). Without ANY environment texture, metallic PBR surfaces
+ * render almost black because they have nothing to reflect.
+ */
+function createProceduralEnvironment(scene: BScene): void {
+  try {
+    const envHelper = scene.createDefaultEnvironment({
+      createGround: false,
+      createSkybox: false,
+      setupImageProcessing: false,
+    })
+    if (envHelper) {
+      scene.environmentIntensity = 0.5
+      console.log('SceneSetup: Procedural environment created as IBL fallback')
+    }
+  } catch (err) {
+    console.warn('SceneSetup: Procedural environment fallback also failed:', err)
+  }
+}
+
+/**
+ * Try to load the IBL .env file. If it fails (404), fall back to
+ * a procedural environment so PBR materials still get reflections.
+ */
+function setupEnvironmentTexture(
+  scene: BScene,
+  url: string,
+  intensity: number
+): CubeTexture | null {
+  let envTex: CubeTexture | null = null
+  try {
+    envTex = CubeTexture.CreateFromPrefilteredData(url, scene)
+    const iblFailoverTimer = window.setTimeout(() => {
+      if (!envTex?.isReady()) {
+        console.warn(`SceneSetup: IBL file ${url} did not become ready — using procedural fallback`)
+        envTex?.dispose()
+        scene.environmentTexture = null
+        createProceduralEnvironment(scene)
+      }
+    }, 3000)
+    // Refresh frozen materials AFTER texture finishes loading, not before.
+    // Without this, materials freeze with stale shader defines (no env support).
+    envTex.onLoadObservable.addOnce(() => {
+      window.clearTimeout(iblFailoverTimer)
+      console.log('SceneSetup: IBL loaded — refreshing PBR materials')
+      refreshFrameMaterialCache()
+      refreshCoverMaterialCache()
+    })
+    scene.environmentTexture = envTex
+    scene.environmentIntensity = intensity
+  } catch {
+    console.warn(`SceneSetup: IBL ${url} failed — using procedural fallback`)
+    scene.environmentTexture = null
+    createProceduralEnvironment(scene)
+  }
+  return envTex
+}
+
 // ─── Disposable interface ────────────────────────────────────────────────────
 
 interface Disposable { dispose(): void }
@@ -218,37 +280,31 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   groundMesh.receiveShadows = true
   groundMesh.freezeWorldMatrix()
 
-  // ── 4-Light rig ──
+  // ── 4-Light rig with specular colors for PBR ──
   const dl = defaultLighting
 
   const hemiLight = new HemisphericLight('hemi-light', dl.hemispheric.direction.clone(), scene)
   hemiLight.intensity = dl.hemispheric.intensity
   hemiLight.diffuse = dl.hemispheric.skyColor.clone()
   hemiLight.groundColor = dl.hemispheric.groundColor.clone()
+  hemiLight.specular = dl.hemispheric.specular.clone()  // helps PBR catch highlights without IBL
 
   const sunLight = new DirectionalLight('sun-light', dl.sun.direction.clone(), scene)
   sunLight.intensity = dl.sun.intensity
   sunLight.diffuse = dl.sun.color.clone()
+  sunLight.specular = dl.sun.specular.clone()            // bright hotspots on metal
 
   const fillLight = new DirectionalLight('fill-light', dl.fill.direction.clone(), scene)
   fillLight.intensity = dl.fill.intensity
   fillLight.diffuse = dl.fill.color.clone()
+  fillLight.specular = dl.fill.specular.clone()          // mild specular from fill
 
   const bottomLight = new DirectionalLight('bottom-light', dl.bottom.direction.clone(), scene)
   bottomLight.intensity = dl.bottom.intensity
   bottomLight.diffuse = dl.bottom.color.clone()
 
-  // ── IBL environment texture for PBR material reflections ──
-  // (#5) Add fallback — if .env file 404s, PBR still looks reasonable
-  let envTex: CubeTexture | null = null
-  try {
-    envTex = CubeTexture.CreateFromPrefilteredData(environment.iblUrl, scene)
-    scene.environmentTexture = envTex
-    scene.environmentIntensity = 0.5
-  } catch {
-    console.warn('SceneSetup: IBL environment texture failed to load — PBR reflections will be limited')
-    scene.environmentTexture = null
-  }
+  // ── IBL environment texture with procedural fallback ──
+  const envTex = setupEnvironmentTexture(scene, environment.iblUrl, 1.0)
 
   // Clear color matches sky horizon so background is always sky-coloured,
   // even if the sky dome shader isn't compiled yet on the first frame.
@@ -365,16 +421,8 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   // Use shared shadow helper (#7)
   const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, gridMesh])
 
-  // ── IBL environment ──
-  let envTex: CubeTexture | null = null
-  try {
-    envTex = CubeTexture.CreateFromPrefilteredData(environment.iblUrl, scene)
-    scene.environmentTexture = envTex
-    scene.environmentIntensity = colors.environmentIntensity
-  } catch {
-    console.warn('SceneSetup: IBL texture failed to load in studio preset')
-    scene.environmentTexture = null
-  }
+  // ── IBL environment with procedural fallback ──
+  const envTex = setupEnvironmentTexture(scene, environment.iblUrl, colors.environmentIntensity)
 
   // No fog in studio environments
   scene.fogMode = BScene.FOGMODE_NONE
@@ -554,6 +602,7 @@ export const SceneSetup: FC<SceneSetupProps> = ({
 
     // Frozen PBR materials cache shader defines — unfreeze/refreeze so they
     // pick up the new scene.environmentTexture (IBL) after an env switch.
+    setFrameMaterialEnvironmentProfile(environmentPreset)
     refreshFrameMaterialCache()
     refreshCoverMaterialCache()
 

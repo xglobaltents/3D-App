@@ -9,7 +9,7 @@
  *   mesh.material = getWhiteCoverMaterial(scene)
  */
 
-import { type Scene, PBRMaterial, Color3 } from '@babylonjs/core'
+import { type Scene, PBRMaterial, Color3, Constants } from '@babylonjs/core'
 
 // ─── Material Cache ──────────────────────────────────────────────────────────
 
@@ -35,8 +35,8 @@ function getCachedOrCreate(
   const mat = new PBRMaterial(key, scene)
   factory(mat)
 
-  // Freeze after setup \u2014 prevents Babylon from re-evaluating every frame
-  mat.freeze()
+  // NOT frozen — same rationale as frameMaterials.ts: frozen PBR causes
+  // stale shader state on WebGPU when meshes are disposed and re-created.
   cache.set(key, mat)
   return mat
 }
@@ -126,14 +126,13 @@ export function getBeigeCoverMaterial(scene: Scene): PBRMaterial {
 // ─── Refresh (after environment change) ──────────────────────────────────────
 
 /**
- * Unfreeze → refreeze all cached cover materials so they pick up
- * a new scene.environmentTexture / IBL.
+ * Mark all cached cover materials as dirty so they recompile on the
+ * next render. Call after scene.environmentTexture changes (IBL load).
  */
 export function refreshCoverMaterialCache(): void {
   for (const mat of cache.values()) {
     try {
-      mat.unfreeze()
-      mat.freeze()
+      mat.markAsDirty(Constants.MATERIAL_TextureDirtyFlag)
     } catch { /* disposed */ }
   }
 }

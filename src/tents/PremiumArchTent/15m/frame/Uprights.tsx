@@ -84,7 +84,17 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 				const templateMeshes = loaded.filter(
 					(m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0
 				)
-				if (templateMeshes.length === 0) return
+				if (templateMeshes.length === 0) {
+					onLoadStateChange?.(false)
+					return
+				}
+
+				// Dispose non-geometry clones (e.g. __root__) to prevent leaks
+				for (const m of loaded) {
+					if (!templateMeshes.includes(m as Mesh)) {
+						try { m.dispose() } catch { /* already gone */ }
+					}
+				}
 
 				stripAndApplyMaterial(templateMeshes, aluminumMat)
 
@@ -166,8 +176,8 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 					src.rotation.setAll(0)
 					src.scaling.setAll(1)
 
+					// Enable AFTER material is applied (clones start disabled)
 					src.setEnabled(true)
-					src.material = aluminumMat
 					createFrozenThinInstances(src, transforms)
 					allDisposables.push(src)
 				}

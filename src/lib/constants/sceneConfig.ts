@@ -86,18 +86,21 @@ export const SCENE_CONFIG = {
       skyColor: Color3.White(),
       groundColor: new Color3(0.67, 0.67, 0.67),
       intensity: 0.8,
+      specular: new Color3(0.3, 0.3, 0.3),  // helps PBR catch highlights without IBL
     },
     sun: {
-      color: Color3.White(),
-      intensity: 1.15,
+      color: new Color3(1.0, 0.98, 0.95),   // slightly warm
+      intensity: 1.5,
       position: new Vector3(30, 50, 30),
       direction: new Vector3(-30, -50, -30).normalize(),
+      specular: new Color3(1.0, 0.98, 0.95), // bright hotspots on metal
     },
     fill: {
-      color: Color3.White(),
-      intensity: 0.6,
+      color: new Color3(0.9, 0.92, 1.0),    // slightly cool for contrast
+      intensity: 0.8,
       position: new Vector3(-20, 30, -20),
       direction: new Vector3(20, -30, 20).normalize(),
+      specular: new Color3(0.5, 0.52, 0.55), // mild specular from fill
     },
     bottom: {
       color: Color3.White(),
@@ -110,14 +113,14 @@ export const SCENE_CONFIG = {
     blurKernel: 32,
     bias: -0.00025,
     normalBias: 0.008,
-    darkness: 0.4,
+    darkness: 0.35,          // was 0.4 — slightly lighter shadows
   },
 
   defaultImageProcessing: {
     toneMappingEnabled: true,
     toneMappingType: 1,   // ACES
-    exposure: 1.1,
-    contrast: 1.05,
+    exposure: 1.0,
+    contrast: 1.08,
   },
 
   // ══════════════════════════════════════════════════════════════════════════
@@ -141,13 +144,13 @@ export const SCENE_CONFIG = {
   },
 
   environment: {
-    iblUrl: '/environments/environmentSpecular.env',
+    iblUrl: '/environments/outdoor.env',
   },
 
   studioLighting: {
     hemispheric: {
       direction: new Vector3(0, 1, 0),
-      specular: new Color3(0.1, 0.1, 0.1),
+      specular: new Color3(0.3, 0.3, 0.3),  // boosted from 0.1
     },
     directional: {
       direction: new Vector3(-1, -2, -1).normalize(),
@@ -168,10 +171,10 @@ export const SCENE_CONFIG = {
       gridMainColor: new Color3(0.85, 0.85, 0.85),
       gridLineColor: new Color3(0.7, 0.7, 0.7),
       gridOpacity: 0.6,
-      hemiIntensity: 0.6,
+      hemiIntensity: 0.8,       // was 0.6
       hemiDiffuse: new Color3(1, 1, 1),
       hemiGroundColor: new Color3(0.4, 0.4, 0.4),
-      dirIntensity: 0.8,
+      dirIntensity: 1.2,        // was 0.8
       environmentIntensity: 0.5,
     },
     black: {
@@ -181,10 +184,10 @@ export const SCENE_CONFIG = {
       gridMainColor: new Color3(0.10, 0.10, 0.12),
       gridLineColor: new Color3(0.20, 0.20, 0.22),
       gridOpacity: 0.35,
-      hemiIntensity: 0.2,
+      hemiIntensity: 0.35,      // was 0.2
       hemiDiffuse: new Color3(0.5, 0.5, 0.6),
       hemiGroundColor: new Color3(0.08, 0.08, 0.10),
-      dirIntensity: 0.4,
+      dirIntensity: 0.7,        // was 0.4
       environmentIntensity: 0.2,
     },
   } as Record<'white' | 'black', StudioPresetColors>,
