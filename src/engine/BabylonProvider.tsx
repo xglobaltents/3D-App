@@ -97,6 +97,7 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
           const gpuEngine = new WebGPUEngine(canvas, {
             adaptToDeviceRatio: true,
             antialias: true,
+            powerPreference: 'high-performance',
           })
           await gpuEngine.initAsync()
           engine = gpuEngine
@@ -106,11 +107,11 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
           // issue, GPU adapter lost).  Lock to WebGL for this session.
           engineTypeDecision = 'webgl'
           console.warn('[Babylon] WebGPU init failed, falling back to WebGL:', err)
-          engine = new Engine(canvas, true, { adaptToDeviceRatio: true })
+          engine = new Engine(canvas, true, { adaptToDeviceRatio: true, powerPreference: 'high-performance' })
           console.log('[Babylon] WebGL fallback engine initialised')
         }
       } else {
-        engine = new Engine(canvas, true, { adaptToDeviceRatio: true })
+        engine = new Engine(canvas, true, { adaptToDeviceRatio: true, powerPreference: 'high-performance' })
         console.log('[Babylon] WebGL engine initialised')
       }
 
