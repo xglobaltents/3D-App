@@ -181,6 +181,15 @@ function setupEnvironmentTexture(
       console.log('SceneSetup: IBL loaded — refreshing PBR materials')
       refreshFrameMaterialCache()
       refreshCoverMaterialCache()
+
+      // Now safe to freeze PBR ground material — IBL is ready,
+      // so shader defines include env support.
+      for (const mat of scene.materials) {
+        if (mat.name === 'ground-mat' && mat instanceof PBRMaterial) {
+          mat.freeze()
+          break
+        }
+      }
     })
     scene.environmentTexture = envTex
     scene.environmentIntensity = intensity
@@ -275,7 +284,8 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   groundMat.roughness = 0.8
   groundMat.metallic = defaultGround.metallic
   groundMat.environmentIntensity = 0.15
-  groundMat.freeze()
+  // NOT frozen — IBL loads asynchronously after material creation;
+  // freezing here would lock stale shader defines (no env support).
   groundMesh.material = groundMat
   groundMesh.receiveShadows = true
   groundMesh.freezeWorldMatrix()

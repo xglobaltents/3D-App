@@ -12,6 +12,7 @@ export const TENT_SPECS: TentSpecs = {
 	ridgeHeight: 5.1,
 	bayDistance: 5,
 	archOuterSpan: 7.606,
+	rafterSlopeAtEave: 0.2977,
 	profiles: {
 		upright: { width: 0.212, height: 0.112 },
 		rafter: { width: 0.212, height: 0.112 },

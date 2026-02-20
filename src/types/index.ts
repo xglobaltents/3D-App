@@ -10,6 +10,15 @@ export interface TentSpecs {
   ridgeHeight: number
   bayDistance: number
   archOuterSpan: number
+  /**
+   * Tangent of the rafter angle at the eave (rise/run of the straight
+   * rafter section).  Used to compute the miter-cut drop on the top of
+   * each upright so the connector surface matches the arch slope.
+   *
+   * Formula:  slope = shoulderHeight / (halfWidth − archCurveHalfWidth)
+   * 15 m → 0.2977  (16.58°)   20 m → 0.3116  (17.31°)
+   */
+  rafterSlopeAtEave?: number
   profiles: ProfileSpecs
   baseplate: BaseplateSpecs
   gableSupportPositions: number[]
