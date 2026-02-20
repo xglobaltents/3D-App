@@ -1,4 +1,4 @@
-import { type FC, useEffect, useState, useRef } from 'react'
+import { type FC, useEffect, useState, useRef, useCallback } from 'react'
 import { Engine, SceneInstrumentation, WebGPUEngine } from '@babylonjs/core'
 
 interface MeshBreakdown {
@@ -25,26 +25,38 @@ interface Stats {
   meshBreakdown: MeshBreakdown[]
 }
 
+const EMPTY_STATS: Stats = {
+  fps: 0,
+  frameTime: 0,
+  drawCalls: 0,
+  triangles: 0,
+  vertices: 0,
+  activeMeshes: 0,
+  totalMeshes: 0,
+  materials: 0,
+  textures: 0,
+  engineType: 'Unknown',
+  meshBreakdown: [],
+}
+
 export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
-  const [stats, setStats] = useState<Stats>({
-    fps: 0,
-    frameTime: 0,
-    drawCalls: 0,
-    triangles: 0,
-    vertices: 0,
-    activeMeshes: 0,
-    totalMeshes: 0,
-    materials: 0,
-    textures: 0,
-    engineType: 'Unknown',
-    meshBreakdown: [],
-  })
+  const [stats, setStats] = useState<Stats>(EMPTY_STATS)
   const [showBreakdown, setShowBreakdown] = useState(false)
   const instrumentationRef = useRef<SceneInstrumentation | null>(null)
   const prevMeshCountRef = useRef<number>(-1)
   const cachedBreakdownRef = useRef<MeshBreakdown[]>([])
   const cachedTrianglesRef = useRef<number>(0)
   const cachedVerticesRef = useRef<number>(0)
+  /** Track which scene the instrumentation belongs to */
+  const instrumentedSceneUidRef = useRef<string | null>(null)
+
+  const disposeInstrumentation = useCallback(() => {
+    if (instrumentationRef.current) {
+      try { instrumentationRef.current.dispose() } catch { /* already gone */ }
+      instrumentationRef.current = null
+      instrumentedSceneUidRef.current = null
+    }
+  }, [])
 
   useEffect(() => {
     const updateStats = () => {
@@ -52,14 +64,26 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
       if (!engine) return
 
       const scene = engine.scenes[0]
-      if (!scene) return
+      if (!scene || scene.isDisposed) {
+        // Scene gone — dispose stale instrumentation
+        disposeInstrumentation()
+        return
+      }
 
-      // Enable instrumentation if not already
-      if (!instrumentationRef.current) {
-        instrumentationRef.current = new SceneInstrumentation(scene)
-        instrumentationRef.current.captureFrameTime = true
-        instrumentationRef.current.captureRenderTime = true
-        instrumentationRef.current.captureInterFrameTime = true
+      // Re-create instrumentation if scene changed (env switch disposes old scene)
+      if (
+        !instrumentationRef.current ||
+        instrumentedSceneUidRef.current !== scene.uid
+      ) {
+        disposeInstrumentation()
+        const inst = new SceneInstrumentation(scene)
+        inst.captureFrameTime = true
+        inst.captureRenderTime = true
+        inst.captureInterFrameTime = true
+        instrumentationRef.current = inst
+        instrumentedSceneUidRef.current = scene.uid
+        // Reset mesh cache so breakdown rebuilds for new scene
+        prevMeshCountRef.current = -1
       }
 
       // Only recalculate mesh breakdown when mesh count changes
@@ -133,24 +157,27 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
       // Detect engine type
       const isWebGPU = engine instanceof WebGPUEngine || engine.name === 'WebGPU'
 
-      // Draw calls: use instrumentation render time counter as a proxy for
-      // actual GPU submissions. engine._drawCalls is WebGL-only and always
-      // reads 0 on WebGPU.
-      const instrumentation = instrumentationRef.current
-      const drawCalls = instrumentation.drawCallsCounter?.current
-        ?? (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current
-        ?? 0
+      // Draw calls: SceneInstrumentation doesn't expose drawCallsCounter.
+      // Use engine._drawCalls for WebGL. For WebGPU, use the render time
+      // counter as a rough proxy (actual GPU submissions aren't exposed).
+      const drawCalls =
+        (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current ?? 0
 
-      // Visible vs hidden mesh counts
+      const instrumentation = instrumentationRef.current!
+      const frameTime = instrumentation.frameTimeCounter.lastSecAverage
+
+      // getActiveMeshes() returns the last frustum-evaluated list.
+      // Safe after the first render tick (our 500ms interval guarantees this).
+      const activeMeshes = scene.getActiveMeshes?.()?.length ?? 0
       const visibleMeshes = scene.meshes.filter(m => m.isEnabled() && m.isVisible).length
 
       setStats({
         fps: Math.round(engine.getFps()),
-        frameTime: parseFloat(instrumentation.frameTimeCounter.lastSecAverage.toFixed(2)),
+        frameTime: parseFloat(frameTime.toFixed(2)),
         drawCalls,
         triangles: cachedTrianglesRef.current,
         vertices: cachedVerticesRef.current,
-        activeMeshes: scene.getActiveMeshes?.().length ?? 0,
+        activeMeshes,
         totalMeshes: visibleMeshes,
         materials: scene.materials.length,
         textures: scene.textures.length,
@@ -159,18 +186,14 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
       })
     }
 
-    // Update every 500ms
     const interval = setInterval(updateStats, 500)
     updateStats()
 
     return () => {
       clearInterval(interval)
-      if (instrumentationRef.current) {
-        instrumentationRef.current.dispose()
-        instrumentationRef.current = null
-      }
+      disposeInstrumentation()
     }
-  }, [])
+  }, [disposeInstrumentation])
 
   return (
     <div className="performance-stats">

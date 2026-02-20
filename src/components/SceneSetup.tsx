@@ -4,8 +4,10 @@ import {
   ArcRotateCamera,
   Color4,
   CubeTexture,
+  CubicEase,
   DirectionalLight,
   DynamicTexture,
+  EasingFunction,
   Effect,
   HemisphericLight,
   Mesh,
@@ -50,7 +52,6 @@ interface SceneSetupProps {
 }
 
 // ─── Sky Gradient Shader (default preset) ────────────────────────────────────
-// Registered once at module level to avoid re-registration on preset switches.
 
 const SKY_VERTEX = `
   precision highp float;
@@ -87,7 +88,7 @@ const SKY_FRAGMENT = `
 Effect.ShadersStore['skyGradientVertexShader'] = SKY_VERTEX
 Effect.ShadersStore['skyGradientFragmentShader'] = SKY_FRAGMENT
 
-// ─── Shared Shadow Caster Helper (#7 — deduplicated) ─────────────────────────
+// ─── Shared Shadow Caster Helper ─────────────────────────────────────────────
 
 const SHADOW_TRI_THRESHOLD = 100
 
@@ -104,19 +105,16 @@ function registerShadowCasters(
   shadowGen: ShadowGenerator,
   excludeMeshes: Mesh[]
 ): { dispose(): void } {
-  // Register existing meshes
   for (const m of scene.meshes) {
     if (m instanceof Mesh && shouldCastShadow(m, excludeMeshes)) {
       shadowGen.addShadowCaster(m)
     }
   }
-  // Auto-register new meshes
   const addObs = scene.onNewMeshAddedObservable.add((m) => {
     if (m instanceof Mesh && shouldCastShadow(m, excludeMeshes)) {
       shadowGen.addShadowCaster(m)
     }
   })
-  // Auto-remove disposed meshes (#6 — shadow cleanup)
   const removeObs = scene.onMeshRemovedObservable.add((m) => {
     if (m instanceof Mesh) {
       shadowGen.removeShadowCaster(m)
@@ -132,12 +130,6 @@ function registerShadowCasters(
 
 // ─── Procedural Environment Fallback ─────────────────────────────────────────
 
-/**
- * Create a minimal procedural environment cubemap from scene lights.
- * This gives PBR materials something to reflect when the .env file is
- * missing (404). Without ANY environment texture, metallic PBR surfaces
- * render almost black because they have nothing to reflect.
- */
 function createProceduralEnvironment(scene: BScene): void {
   try {
     const envHelper = scene.createDefaultEnvironment({
@@ -157,6 +149,10 @@ function createProceduralEnvironment(scene: BScene): void {
 /**
  * Try to load the IBL .env file. If it fails (404), fall back to
  * a procedural environment so PBR materials still get reflections.
+ *
+ * FIX: Refresh materials AFTER IBL is fully loaded, not during setup.
+ * This prevents the ground material and other PBR mats from having
+ * stale shader defines.
  */
 function setupEnvironmentTexture(
   scene: BScene,
@@ -174,23 +170,26 @@ function setupEnvironmentTexture(
         createProceduralEnvironment(scene)
       }
     }, 3000)
-    // Refresh frozen materials AFTER texture finishes loading, not before.
-    // Without this, materials freeze with stale shader defines (no env support).
+
     envTex.onLoadObservable.addOnce(() => {
       window.clearTimeout(iblFailoverTimer)
       console.log('SceneSetup: IBL loaded — refreshing PBR materials')
+
       refreshFrameMaterialCache()
       refreshCoverMaterialCache()
 
-      // Now safe to freeze PBR ground material — IBL is ready,
-      // so shader defines include env support.
+      // Unfreeze → mark dirty → refreeze any frozen PBR materials (e.g. ground)
+      // so they pick up the newly loaded IBL reflections.
       for (const mat of scene.materials) {
-        if (mat.name === 'ground-mat' && mat instanceof PBRMaterial) {
-          mat.freeze()
-          break
+        if (mat instanceof PBRMaterial) {
+          const wasFrozen = mat.isFrozen
+          if (wasFrozen) mat.unfreeze()
+          mat.markAsDirty(1) // MATERIAL_TextureDirtyFlag
+          if (wasFrozen) mat.freeze()
         }
       }
     })
+
     scene.environmentTexture = envTex
     scene.environmentIntensity = intensity
   } catch {
@@ -240,22 +239,20 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   skyDome.material = skyMat
 
   // ── Terracotta tile ground (multi-tile with colour variation) ──
-  const tilesPerSide = 8          // 8×8 tile grid in texture
-  const texSize = defaultGround.texSize   // (#8) Use config value, now 1024
-  const grout = defaultGround.groutWidthPx * 2 // thicker grout at higher res
+  const tilesPerSide = 8
+  const texSize = defaultGround.texSize
+  const grout = defaultGround.groutWidthPx * 2
   const cellSize = texSize / tilesPerSide
   const groundTex = new DynamicTexture('ground-tile-tex', texSize, scene, false)
   const ctx = groundTex.getContext()
 
-  // Fill grout as background
   ctx.fillStyle = defaultGround.colors.grout
   ctx.fillRect(0, 0, texSize, texSize)
 
-  // Paint each tile with subtle random colour variation
   const { r, g, b } = defaultGround.colors.tileBase
   for (let row = 0; row < tilesPerSide; row++) {
     for (let col = 0; col < tilesPerSide; col++) {
-      const vary = Math.floor(Math.random() * 20) - 10 // ±10
+      const vary = Math.floor(Math.random() * 20) - 10
       const tr = Math.min(255, Math.max(0, r + vary))
       const tg = Math.min(255, Math.max(0, g + vary * 0.7))
       const tb = Math.min(255, Math.max(0, b + vary * 0.5))
@@ -268,8 +265,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   groundTex.update()
   groundTex.wrapU = Texture.WRAP_ADDRESSMODE
   groundTex.wrapV = Texture.WRAP_ADDRESSMODE
-  groundTex.anisotropicFilteringLevel = 16 // sharpen at oblique angles
-  // Repeat count adjusted: each texture tile covers 8 tiles, so fewer repeats
+  groundTex.anisotropicFilteringLevel = 16
   groundTex.uScale = defaultGround.tileRepeat / tilesPerSide
   groundTex.vScale = defaultGround.tileRepeat / tilesPerSide
 
@@ -284,11 +280,21 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   groundMat.roughness = 0.8
   groundMat.metallic = defaultGround.metallic
   groundMat.environmentIntensity = 0.15
-  // NOT frozen — IBL loads asynchronously after material creation;
-  // freezing here would lock stale shader defines (no env support).
+
+  // Ensure ground renders immediately — don't wait for IBL.
+  // disableLighting=false + low environmentIntensity means direct lights
+  // are enough to show the ground on frame 1. IBL adds subtle reflections later.
+  groundMat.forceIrradianceInFragment = false
   groundMesh.material = groundMat
   groundMesh.receiveShadows = true
   groundMesh.freezeWorldMatrix()
+
+  // Force shader compilation NOW so ground doesn't pop in after IBL loads.
+  // The callback is a no-op — we just need the compile to happen eagerly.
+  groundMat.forceCompilation(groundMesh, () => {
+    // Ground shader compiled — safe to freeze for performance
+    groundMat.freeze()
+  })
 
   // ── 4-Light rig with specular colors for PBR ──
   const dl = defaultLighting
@@ -297,17 +303,17 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   hemiLight.intensity = dl.hemispheric.intensity
   hemiLight.diffuse = dl.hemispheric.skyColor.clone()
   hemiLight.groundColor = dl.hemispheric.groundColor.clone()
-  hemiLight.specular = dl.hemispheric.specular.clone()  // helps PBR catch highlights without IBL
+  hemiLight.specular = dl.hemispheric.specular.clone()
 
   const sunLight = new DirectionalLight('sun-light', dl.sun.direction.clone(), scene)
   sunLight.intensity = dl.sun.intensity
   sunLight.diffuse = dl.sun.color.clone()
-  sunLight.specular = dl.sun.specular.clone()            // bright hotspots on metal
+  sunLight.specular = dl.sun.specular.clone()
 
   const fillLight = new DirectionalLight('fill-light', dl.fill.direction.clone(), scene)
   fillLight.intensity = dl.fill.intensity
   fillLight.diffuse = dl.fill.color.clone()
-  fillLight.specular = dl.fill.specular.clone()          // mild specular from fill
+  fillLight.specular = dl.fill.specular.clone()
 
   const bottomLight = new DirectionalLight('bottom-light', dl.bottom.direction.clone(), scene)
   bottomLight.intensity = dl.bottom.intensity
@@ -316,8 +322,6 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   // ── IBL environment texture with procedural fallback ──
   const envTex = setupEnvironmentTexture(scene, environment.iblUrl, 1.0)
 
-  // Clear color matches sky horizon so background is always sky-coloured,
-  // even if the sky dome shader isn't compiled yet on the first frame.
   scene.clearColor = new Color4(gc.horizon.r, gc.horizon.g, gc.horizon.b, 1.0)
 
   // ── Shadow generator (sun) ──
@@ -329,15 +333,13 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   shadowGen.normalBias = ds.normalBias
   shadowGen.setDarkness(ds.darkness)
 
-  // Auto-register shadow casters using shared helper (#7)
   const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, skyDome])
 
   // ── Scene settings ──
-  scene.autoClear = true            // always clear colour buffer to prevent ground bleeding into sky
+  scene.autoClear = true
   scene.autoClearDepthAndStencil = true
   scene.fogMode = BScene.FOGMODE_NONE
 
-  // ACES tone mapping
   const ip = defaultImageProcessing
   scene.imageProcessingConfiguration.toneMappingEnabled = ip.toneMappingEnabled
   scene.imageProcessingConfiguration.toneMappingType = ip.toneMappingType
@@ -369,7 +371,6 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   const colors = getStudioPresetColors(preset)
   const mapSize = getShadowMapSize()
 
-  // ── Background ──
   scene.clearColor = colors.clearColor.clone()
 
   // ── PBR ground ──
@@ -386,8 +387,14 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   groundMat.roughness = studioGround.roughness
   groundMat.backFaceCulling = false
   groundMat.environmentIntensity = colors.groundEnvironmentIntensity
+  groundMat.forceIrradianceInFragment = false
   groundMesh.material = groundMat
   groundMesh.freezeWorldMatrix()
+
+  // Force shader compilation NOW so ground doesn't pop in after IBL loads.
+  groundMat.forceCompilation(groundMesh, () => {
+    groundMat.freeze()
+  })
 
   // ── Grid overlay ──
   const gridMesh = MeshBuilder.CreateGround('gridGround', {
@@ -428,20 +435,15 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   shadowGen.blurKernel = ss.blurKernel
   shadowGen.setDarkness(ss.darkness)
 
-  // Use shared shadow helper (#7)
   const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, gridMesh])
 
   // ── IBL environment with procedural fallback ──
   const envTex = setupEnvironmentTexture(scene, environment.iblUrl, colors.environmentIntensity)
 
-  // No fog in studio environments
   scene.fogMode = BScene.FOGMODE_NONE
-
-  // ── Scene settings ──
   scene.autoClear = true
   scene.autoClearDepthAndStencil = true
 
-  // (#10) Mild tone mapping in studio to avoid jarring brightness shift
   scene.imageProcessingConfiguration.toneMappingEnabled = true
   scene.imageProcessingConfiguration.toneMappingType = 1 // ACES
   scene.imageProcessingConfiguration.exposure = 1.0
@@ -474,7 +476,12 @@ function animateCameraToView(
   radius: number
 ): void {
   const fps = 60
-  const frames = 30
+  const frames = 20 // snappier than 30
+  const scene = camera.getScene()
+
+  // Stop any running camera animation immediately — prevents the camera
+  // from sweeping back through the previous view when switching presets.
+  scene.stopAnimation(camera)
 
   const views: Record<CameraView, { alpha: number; beta: number; radiusMul: number }> = {
     orbit: { alpha: Math.PI / 4, beta: Math.PI / 3, radiusMul: 1.0 },
@@ -484,47 +491,43 @@ function animateCameraToView(
     back: { alpha: -Math.PI / 2, beta: Math.PI / 2.5, radiusMul: 1.0 },
   }
   const v = views[view]
-  const scene = camera.getScene()
 
-  // Alpha animation
-  const alphaAnim = new Animation('alphaAnim', 'alpha', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
-  alphaAnim.setKeys([
-    { frame: 0, value: camera.alpha },
-    { frame: frames, value: v.alpha },
-  ])
+  // Use shortest-path rotation for alpha to avoid spinning the long way around.
+  // e.g. front (π/2) → back (-π/2) should go through 0, not through ±π.
+  let targetAlpha = v.alpha
+  const diff = targetAlpha - camera.alpha
+  if (diff > Math.PI) targetAlpha -= Math.PI * 2
+  else if (diff < -Math.PI) targetAlpha += Math.PI * 2
 
-  // Beta animation
-  const betaAnim = new Animation('betaAnim', 'beta', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
-  betaAnim.setKeys([
-    { frame: 0, value: camera.beta },
-    { frame: frames, value: v.beta },
-  ])
+  // Easing: cubic ease-out for snappy start, smooth stop
+  const easing = new CubicEase()
+  easing.setEasingMode(EasingFunction.EASINGMODE_EASEOUT)
 
-  // Radius animation
-  const radiusAnim = new Animation('radiusAnim', 'radius', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
-  radiusAnim.setKeys([
-    { frame: 0, value: camera.radius },
-    { frame: frames, value: radius * v.radiusMul },
-  ])
+  const makeAnim = (
+    name: string,
+    property: string,
+    from: number,
+    to: number
+  ): Animation => {
+    const anim = new Animation(name, property, fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
+    anim.setKeys([
+      { frame: 0, value: from },
+      { frame: frames, value: to },
+    ])
+    anim.setEasingFunction(easing)
+    return anim
+  }
 
-  // Target animation — smooth transition to new target
-  const targetXAnim = new Animation('targetXAnim', 'target.x', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
-  targetXAnim.setKeys([
-    { frame: 0, value: camera.target.x },
-    { frame: frames, value: target.x },
-  ])
-  const targetYAnim = new Animation('targetYAnim', 'target.y', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
-  targetYAnim.setKeys([
-    { frame: 0, value: camera.target.y },
-    { frame: frames, value: target.y },
-  ])
-  const targetZAnim = new Animation('targetZAnim', 'target.z', fps, Animation.ANIMATIONTYPE_FLOAT, Animation.ANIMATIONLOOPMODE_CONSTANT)
-  targetZAnim.setKeys([
-    { frame: 0, value: camera.target.z },
-    { frame: frames, value: target.z },
-  ])
+  const animations = [
+    makeAnim('alphaAnim', 'alpha', camera.alpha, targetAlpha),
+    makeAnim('betaAnim', 'beta', camera.beta, v.beta),
+    makeAnim('radiusAnim', 'radius', camera.radius, radius * v.radiusMul),
+    makeAnim('targetXAnim', 'target.x', camera.target.x, target.x),
+    makeAnim('targetYAnim', 'target.y', camera.target.y, target.y),
+    makeAnim('targetZAnim', 'target.z', camera.target.z, target.z),
+  ]
 
-  scene.beginDirectAnimation(camera, [alphaAnim, betaAnim, radiusAnim, targetXAnim, targetYAnim, targetZAnim], 0, frames, false)
+  scene.beginDirectAnimation(camera, animations, 0, frames, false)
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -535,9 +538,12 @@ function animateCameraToView(
  *   - white   -> white studio: PBR ground + grid + IBL
  *   - black   -> black studio: same structure, dark colours
  *
- * Camera target + radius are reactive to tent dimensions (#1).
+ * Camera target + radius are reactive to tent dimensions.
  * Entire environment rebuilds when preset changes.
- * @see docs/environment-settings.md
+ *
+ * FIX: setFrameMaterialEnvironmentProfile() is called BEFORE
+ * refreshFrameMaterialCache() so intensity profiles are applied
+ * before materials get markAsDirty.
  */
 export const SceneSetup: FC<SceneSetupProps> = ({
   environmentPreset = 'default',
@@ -550,7 +556,6 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   const scene = useScene()
   const cameraRef = useRef<ArcRotateCamera | null>(null)
 
-  // Default camera values
   const target = useMemo(
     () => (cameraTarget ? cameraTarget.clone() : new Vector3(0, 3, 0)),
     [cameraTarget]
@@ -574,7 +579,6 @@ export const SceneSetup: FC<SceneSetupProps> = ({
       scene
     )
 
-    // Apply config
     camera.minZ = camConfig.minZ
     camera.wheelPrecision = camConfig.wheelPrecision
     camera.panningSensibility = camConfig.panningSensibility
@@ -603,6 +607,10 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   useEffect(() => {
     if (!scene) return
 
+    // FIX: Set intensity profile FIRST so materials created during
+    // environment setup already have correct values for this preset.
+    setFrameMaterialEnvironmentProfile(environmentPreset)
+
     let env: Disposable
     if (environmentPreset === 'default') {
       env = setupDefaultEnvironment(scene)
@@ -610,9 +618,7 @@ export const SceneSetup: FC<SceneSetupProps> = ({
       env = setupStudioEnvironment(scene, environmentPreset)
     }
 
-    // Frozen PBR materials cache shader defines — unfreeze/refreeze so they
-    // pick up the new scene.environmentTexture (IBL) after an env switch.
-    setFrameMaterialEnvironmentProfile(environmentPreset)
+    // Refresh all PBR material caches with new intensity profiles
     refreshFrameMaterialCache()
     refreshCoverMaterialCache()
 
@@ -621,22 +627,41 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     }
   }, [scene, environmentPreset])
 
-  // (#1) Update camera target/radius reactively when tent dimensions change
-  /* eslint-disable react-hooks/immutability */
+  // Update camera target/radius reactively when tent dimensions change.
+  // Only apply if values actually changed — don't snap back on re-renders
+  // caused by environment preset switches while user has orbited away.
+  const prevTarget = useRef<Vector3 | null>(null)
+  const prevRadius = useRef<number>(radius)
+
   useEffect(() => {
     const camera = cameraRef.current
     if (!camera) return
-    camera.setTarget(target)
-    camera.radius = radius
+
+    const targetChanged = !prevTarget.current || !target.equals(prevTarget.current)
+    const radiusChanged = prevRadius.current !== radius
+
+    if (targetChanged) {
+      camera.setTarget(target)
+      prevTarget.current = target.clone()
+    }
+    if (radiusChanged) {
+      camera.radius = radius
+      prevRadius.current = radius
+    }
     camera.upperRadiusLimit = upperLimit
   }, [target, radius, upperLimit])
-  /* eslint-enable react-hooks/immutability */
 
-  // (#2) Animate camera on view changes
+  // Animate camera on explicit view changes (front/side/top/back).
+  // Skip 'orbit' — that's the manual state, user is already where they want.
+  const prevView = useRef<CameraView>(cameraView)
   useEffect(() => {
     if (!scene) return
     const camera = cameraRef.current
     if (!camera) return
+    // Only animate if the view actually changed and it's a named preset
+    if (cameraView === prevView.current) return
+    prevView.current = cameraView
+    if (cameraView === 'orbit') return // user orbited manually, don't snap
     animateCameraToView(camera, cameraView, target, radius)
   }, [scene, cameraView, target, radius])
 
@@ -646,26 +671,21 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     const camera = cameraRef.current
     if (!camera) return
 
-    // Debounce: only fire once after user starts interacting
     let isAnimating = false
     const obs = camera.onAfterCheckInputsObservable.add(() => {
-      // Skip if we're in the middle of a programmatic animation
       if (scene.getAllAnimatablesByTarget(camera).length > 0) {
         isAnimating = true
         return
       }
-      // Only reset if we were NOT just animating (animation just ended)
       if (isAnimating) {
         isAnimating = false
         return
       }
     })
 
-    // Detect actual user input via pointer events on the canvas
     const canvas = scene.getEngine().getRenderingCanvas()
     if (canvas) {
       const handleUserInput = () => {
-        // Only reset if not currently in orbit and no active animations
         if (cameraView !== 'orbit' && scene.getAllAnimatablesByTarget(camera).length === 0) {
           onCameraViewReset()
         }
