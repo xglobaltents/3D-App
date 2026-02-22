@@ -154,15 +154,25 @@ function createProceduralEnvironment(scene: BScene): void {
  * This prevents the ground material and other PBR mats from having
  * stale shader defines.
  */
+interface EnvTextureResult {
+  texture: CubeTexture | null
+  /** Clears the failover timer + disposes the texture. Must be called on cleanup. */
+  dispose(): void
+}
+
 function setupEnvironmentTexture(
   scene: BScene,
   url: string,
-  intensity: number
-): CubeTexture | null {
+  intensity: number,
+): EnvTextureResult {
   let envTex: CubeTexture | null = null
+  let iblFailoverTimer: ReturnType<typeof setTimeout> | null = null
+  let disposed = false
+
   try {
     envTex = CubeTexture.CreateFromPrefilteredData(url, scene)
-    const iblFailoverTimer = window.setTimeout(() => {
+    iblFailoverTimer = window.setTimeout(() => {
+      if (disposed) return
       if (!envTex?.isReady()) {
         console.warn(`SceneSetup: IBL file ${url} did not become ready — using procedural fallback`)
         envTex?.dispose()
@@ -172,7 +182,8 @@ function setupEnvironmentTexture(
     }, 3000)
 
     envTex.onLoadObservable.addOnce(() => {
-      window.clearTimeout(iblFailoverTimer)
+      if (iblFailoverTimer != null) window.clearTimeout(iblFailoverTimer)
+      if (disposed) return
       console.log('SceneSetup: IBL loaded — refreshing PBR materials')
 
       refreshFrameMaterialCache()
@@ -197,7 +208,22 @@ function setupEnvironmentTexture(
     scene.environmentTexture = null
     createProceduralEnvironment(scene)
   }
-  return envTex
+
+  return {
+    texture: envTex,
+    dispose() {
+      disposed = true
+      if (iblFailoverTimer != null) {
+        window.clearTimeout(iblFailoverTimer)
+        iblFailoverTimer = null
+      }
+      if (envTex) {
+        envTex.dispose()
+        envTex = null
+        scene.environmentTexture = null
+      }
+    },
+  }
 }
 
 // ─── Disposable interface ────────────────────────────────────────────────────
@@ -281,20 +307,14 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   groundMat.metallic = defaultGround.metallic
   groundMat.environmentIntensity = 0.15
 
-  // Ensure ground renders immediately — don't wait for IBL.
-  // disableLighting=false + low environmentIntensity means direct lights
-  // are enough to show the ground on frame 1. IBL adds subtle reflections later.
   groundMat.forceIrradianceInFragment = false
   groundMesh.material = groundMat
   groundMesh.receiveShadows = true
   groundMesh.freezeWorldMatrix()
 
-  // Force shader compilation NOW so ground doesn't pop in after IBL loads.
-  // The callback is a no-op — we just need the compile to happen eagerly.
-  groundMat.forceCompilation(groundMesh, () => {
-    // Ground shader compiled — safe to freeze for performance
-    groundMat.freeze()
-  })
+  // NOTE: No forceCompilation() here — the render loop is deferred until
+  // IBL is loaded, so the ground shader will compile with REFLECTION defines
+  // from the start.  This prevents the light→dark flash.
 
   // ── 4-Light rig with specular colors for PBR ──
   const dl = defaultLighting
@@ -320,7 +340,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   bottomLight.diffuse = dl.bottom.color.clone()
 
   // ── IBL environment texture with procedural fallback ──
-  const envTex = setupEnvironmentTexture(scene, environment.iblUrl, 1.0)
+  const envResult = setupEnvironmentTexture(scene, environment.iblUrl, 1.0)
 
   scene.clearColor = new Color4(gc.horizon.r, gc.horizon.g, gc.horizon.b, 1.0)
 
@@ -354,7 +374,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
       fillLight.dispose()
       sunLight.dispose()
       hemiLight.dispose()
-      if (envTex) { envTex.dispose(); scene.environmentTexture = null }
+      envResult.dispose()
       groundMesh.dispose()
       groundMat.dispose()
       groundTex.dispose()
@@ -391,10 +411,7 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   groundMesh.material = groundMat
   groundMesh.freezeWorldMatrix()
 
-  // Force shader compilation NOW so ground doesn't pop in after IBL loads.
-  groundMat.forceCompilation(groundMesh, () => {
-    groundMat.freeze()
-  })
+  // NOTE: No forceCompilation() — render loop deferred until IBL ready.
 
   // ── Grid overlay ──
   const gridMesh = MeshBuilder.CreateGround('gridGround', {
@@ -438,7 +455,7 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, gridMesh])
 
   // ── IBL environment with procedural fallback ──
-  const envTex = setupEnvironmentTexture(scene, environment.iblUrl, colors.environmentIntensity)
+  const envResult = setupEnvironmentTexture(scene, environment.iblUrl, colors.environmentIntensity)
 
   scene.fogMode = BScene.FOGMODE_NONE
   scene.autoClear = true
@@ -459,10 +476,7 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
       gridMat.dispose()
       groundMesh.dispose()
       groundMat.dispose()
-      if (envTex) {
-        envTex.dispose()
-        scene.environmentTexture = null
-      }
+      envResult.dispose()
     },
   }
 }

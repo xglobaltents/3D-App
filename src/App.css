@@ -940,15 +940,15 @@ a:focus-visible {
 /* ===== Loading Overlay (#22) ===== */
 .loading-overlay {
   position: fixed;
-  top: 50%;
-  left: 50%;
-  transform: translate(-50%, -50%);
+  inset: 0;
   display: flex;
   flex-direction: column;
+  justify-content: center;
   align-items: center;
   gap: 12px;
   z-index: 50;
-  color: var(--text-secondary);
+  background: #000;
+  color: #d1d5db;
   font-size: 13px;
   pointer-events: none;
 }

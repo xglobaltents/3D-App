@@ -26,6 +26,7 @@ import {
 import { Engine } from '@babylonjs/core/Engines/engine'
 import { WebGPUEngine } from '@babylonjs/core/Engines/webgpuEngine'
 import { Scene } from '@babylonjs/core/scene'
+import { Color4 } from '@babylonjs/core/Maths/math.color'
 import '@babylonjs/loaders/glTF'
 
 // ─── Module-level engine type cache ──────────────────────────────────────────
@@ -41,6 +42,15 @@ const DEFAULT_MAX_DPR = 2
 
 /** Resize debounce delay in ms */
 const RESIZE_DEBOUNCE_MS = 150
+
+function shouldForceWebGLForSafari(): boolean {
+  if (typeof navigator === 'undefined') return false
+  const ua = navigator.userAgent
+  const isWebKit = /AppleWebKit/i.test(ua)
+  const isSafari = /Safari/i.test(ua)
+  const isChromeLike = /Chrome|Chromium|CriOS|Edg|OPR/i.test(ua)
+  return isWebKit && isSafari && !isChromeLike
+}
 
 // ─── Context ─────────────────────────────────────────────────────────────────
 
@@ -114,11 +124,16 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
 
       // ── Determine engine type (cached across StrictMode remounts) ──
       if (engineTypeDecision === null) {
-        try {
-          const supported = await WebGPUEngine.IsSupportedAsync
-          engineTypeDecision = supported ? 'webgpu' : 'webgl'
-        } catch {
+        if (shouldForceWebGLForSafari()) {
           engineTypeDecision = 'webgl'
+          console.log('[Babylon] Safari detected — forcing WebGL engine')
+        } else {
+          try {
+            const supported = await WebGPUEngine.IsSupportedAsync
+            engineTypeDecision = supported ? 'webgpu' : 'webgl'
+          } catch {
+            engineTypeDecision = 'webgl'
+          }
         }
       }
 
@@ -174,6 +189,8 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
       }
 
       const scene = new Scene(engine)
+      // Keep first visible frame black to avoid white flash while scene assets/effects initialize.
+      scene.clearColor = new Color4(0, 0, 0, 1)
 
       engineRef.current = engine
       sceneRef.current = scene
@@ -260,6 +277,7 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
           width: '100%',
           height: '100%',
           display: 'block',
+          backgroundColor: '#000',
           outline: 'none',
           touchAction: 'none',
         }}

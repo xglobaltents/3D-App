@@ -12,10 +12,10 @@
  * `setFrameMaterialEnvironmentProfile()` adjusts directIntensity and
  * environmentIntensity to compensate for the different scene lighting.
  *
- * ── Flash Prevention ──
- * Materials start with reduced environmentIntensity (0.3) until the
- * fixed cubemap finishes loading, then ramp to the target value.
- * This avoids the bright→dark flash on first load.
+ * ── Render-Loop Gating (Flash Prevention) ──
+ * The render loop is deferred (in BabylonProvider) until environment
+ * textures are loaded, so materials always compile with proper REFLECTION
+ * shader defines.  No intensity ramp-up needed.
  *
  * Materials are NOT frozen — freezing causes stale GPU pipeline state on
  * WebGPU when meshes are disposed + re-created (bay change).
@@ -89,7 +89,6 @@ function getCachedOrCreate<T extends Material>(
 const METAL_REFLECTION_URL = '/environments/environmentSpecular.env'
 let metalReflection: CubeTexture | null = null
 let metalReflectionSceneUid: string | null = null
-let metalReflectionReady = false
 
 function isTextureDisposed(tex: CubeTexture): boolean {
   const t = tex as unknown as Record<string, unknown>
@@ -111,28 +110,11 @@ function getMetalReflection(scene: Scene): CubeTexture {
   if (metalReflection) {
     try { metalReflection.dispose() } catch { /* gone */ }
   }
-  metalReflectionReady = false
-
   metalReflection = CubeTexture.CreateFromPrefilteredData(
     METAL_REFLECTION_URL,
     scene,
   )
   metalReflection.onLoadObservable.addOnce(() => {
-    // Cubemap ready — ramp up environmentIntensity on all metal materials
-    // to their target values (prevents bright→dark flash).
-    metalReflectionReady = true
-    const profile = INTENSITY_PROFILES[activePreset]
-    for (const [key, mat] of cache.entries()) {
-      if (!(mat instanceof PBRMaterial)) continue
-      if (key === 'shared-aluminum-frame') {
-        mat.environmentIntensity = profile.aluminum.environmentIntensity
-      } else if (key === 'shared-steel-frame') {
-        mat.environmentIntensity = profile.steel.environmentIntensity
-      } else if (key === 'shared-dark-metal') {
-        mat.environmentIntensity = profile.darkMetal.environmentIntensity
-      }
-      mat.markAsDirty(Constants.MATERIAL_TextureDirtyFlag)
-    }
     console.log('frameMaterials: Fixed metal reflection cubemap ready')
   })
   metalReflectionSceneUid = scene.uid
@@ -164,8 +146,8 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
     // Fixed reflection cubemap — shared across all metals
     mat.reflectionTexture = getMetalReflection(s)
 
-    // Start with reduced env intensity until cubemap is ready (flash prevention)
-    mat.environmentIntensity = metalReflectionReady ? profile.environmentIntensity : 0.3
+    // Use target intensity directly — render loop is deferred until IBL ready
+    mat.environmentIntensity = profile.environmentIntensity
     mat.directIntensity = profile.directIntensity
     mat.specularIntensity = profile.specularIntensity
 
@@ -198,7 +180,7 @@ export function getSteelMaterial(scene: Scene): PBRMaterial {
     // Fixed reflection cubemap — no more dependency on scene.environmentTexture
     mat.reflectionTexture = getMetalReflection(s)
 
-    mat.environmentIntensity = metalReflectionReady ? profile.environmentIntensity : 0.15
+    mat.environmentIntensity = profile.environmentIntensity
     mat.directIntensity = profile.directIntensity
     mat.specularIntensity = profile.specularIntensity
 
@@ -230,7 +212,7 @@ export function getDarkMetalMaterial(scene: Scene): PBRMaterial {
     // Fixed reflection cubemap
     mat.reflectionTexture = getMetalReflection(s)
 
-    mat.environmentIntensity = metalReflectionReady ? profile.environmentIntensity : 0.1
+    mat.environmentIntensity = profile.environmentIntensity
     mat.directIntensity = profile.directIntensity
     mat.specularIntensity = profile.specularIntensity
 
@@ -263,8 +245,7 @@ export function setFrameMaterialEnvironmentProfile(preset: EnvironmentPreset): v
     if (p) {
       mat.directIntensity = p.directIntensity
       mat.specularIntensity = p.specularIntensity
-      // Only set full env intensity if cubemap is loaded (flash prevention)
-      mat.environmentIntensity = metalReflectionReady ? p.environmentIntensity : mat.environmentIntensity
+      mat.environmentIntensity = p.environmentIntensity
     }
   }
 }
@@ -305,6 +286,5 @@ export function disposeFrameMaterialCache(): void {
     try { metalReflection.dispose() } catch { /* gone */ }
     metalReflection = null
     metalReflectionSceneUid = null
-    metalReflectionReady = false
   }
 }
