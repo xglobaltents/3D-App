@@ -19,6 +19,12 @@ export interface TentSpecs {
    * 15 m → 0.2977  (16.58°)   20 m → 0.3116  (17.31°)
    */
   rafterSlopeAtEave?: number
+  /** Vertical gap between upright top and arch bottom (m). Default 0.150. */
+  eaveJointGap?: number
+  /** Explicit upright height (m). Falls back to eaveHeight − eaveJointGap. */
+  uprightHeight?: number
+  /** Returns arch centerline height at a given horizontal X position. */
+  getArchHeightAtEave?: (x: number) => number
   profiles: ProfileSpecs
   baseplate: BaseplateSpecs
   gableSupportPositions: number[]

@@ -7,6 +7,7 @@ import { SceneSetup, type EnvironmentPreset, type CameraView } from '@/component
 import { PerformanceStats } from '@/components/PerformanceStats'
 import { Baseplates } from '@/tents/SharedFrames/Baseplates'
 import { Uprights } from '@/tents/PremiumArchTent/15m/frame/Uprights'
+import { UprightConnectors } from '@/tents/SharedFrames/UprightConnectors'
 import { TENT_SPECS as PREMIUM_ARCH_SPECS } from '@/tents/PremiumArchTent/15m/specs'
 import { getReactiveCameraConfig } from '@/lib/constants/sceneConfig'
 import { useBottomSheetDrag } from '@/hooks/useBottomSheetDrag'
@@ -155,6 +156,12 @@ function App() {
                   onLoadStateChange={handleLoadStateChange}
                 />
                 <Uprights
+                  numBays={numBays}
+                  specs={PREMIUM_ARCH_SPECS}
+                  enabled={true}
+                  onLoadStateChange={handleLoadStateChange}
+                />
+                <UprightConnectors
                   numBays={numBays}
                   specs={PREMIUM_ARCH_SPECS}
                   enabled={true}
