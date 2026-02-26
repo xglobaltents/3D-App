@@ -1,12 +1,9 @@
-import { type FC, useEffect, memo } from 'react'
+import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
+import { Mesh, TransformNode, Vector3, Matrix, Quaternion } from '@babylonjs/core'
 import {
-	Mesh,
-	MeshBuilder,
-	TransformNode,
-	Vector3,
-} from '@babylonjs/core'
-import {
+	loadGLB,
+	stripAndApplyMaterial,
 	createFrozenThinInstances,
 	type InstanceTransform,
 } from '@/lib/utils/GLBLoader'
@@ -15,36 +12,11 @@ import type { TentSpecs } from '@/types'
 
 // ─── Constants ───────────────────────────────────────────────────────────────
 
-const PLATE_THICKNESS = 0.008 // 8mm aluminium plate
-
-// ─── Helpers ─────────────────────────────────────────────────────────────────
+const SHARED_FRAME_PATH = '/tents/SharedFrames/'
+const CONNECTOR_GLB     = 'upright-connector-r.glb'
 
 function clamp(v: number, lo: number, hi: number) {
 	return Math.max(lo, Math.min(hi, v))
-}
-
-/**
- * Create a connector plate mesh as a simple box.
- * Origin at center-center so tilt rotation works symmetrically.
- *   X = profileWidth  (across tent)
- *   Y = PLATE_THICKNESS (thin)
- *   Z = profileDepth  (along tent)
- */
-function createPlateBox(
-	scene: ReturnType<typeof useScene>,
-	name: string,
-	width: number,
-	thickness: number,
-	depth: number,
-): Mesh {
-	const box = MeshBuilder.CreateBox(name, {
-		width,        // X
-		height: thickness, // Y
-		depth,        // Z
-	}, scene!)
-
-	// Origin is already at center — perfect for tilt rotation
-	return box
 }
 
 // ─── Component ───────────────────────────────────────────────────────────────
@@ -57,141 +29,198 @@ interface UprightConnectorsProps {
 }
 
 /**
- * UprightConnectors — aluminium connector plates sitting on the
- * miter-cut top of each upright, bridging to the arch/rafter frame.
+ * UprightConnectors — loads upright-connector-r.glb and bakes the
+ * centering + scaling directly into vertex data so that:
  *
- * Uses a simple box plate (profileWidth x PLATE_THICKNESS x profileDepth)
- * positioned at the midpoint of the miter cut and tilted to match
- * the miter angle.
+ *   • The geometry is centered at origin with correct world-space size.
+ *   • Thin-instance rotation works around the geometry center (not around
+ *     some far-off origin in raw GLB coords).
+ *   • The left side is a properly mirrored copy with corrected winding
+ *     (no negative-scale hack that breaks backface culling).
  *
- * Positioning (matching Uprights.tsx):
- *   eaveHeight from ground (includes baseplate + upright + rafter profile)
- *   Uprights.tsx scales upright to eaveHeight, bottom at baseplateTop
- *   => inner-top Y = baseplateTop + eaveHeight       (high side of miter)
- *   => outer-top Y = inner-top - miterDrop            (low side of miter)
- *   miterDrop = rafterSlopeAtEave x profileWidth
- *   Tilt = atan(rafterSlopeAtEave)
- *
- *        .----- arch frame ------.
- *   HIGH \-----------/ HIGH   <- uprightInnerTopY
- *   (in)  \  PLATE  / (in)
- *          \-------/          <- uprightOuterTopY
- *          | UPRIGHT |
- *          |_________|        <- baseplateTop
+ * Target dimensions (from specs.connectorPlate or upright profile):
+ *   X = plate length inward   (2 × profileWidth = 0.424 m)
+ *   Y = plate face height     (profileWidth     = 0.212 m)
+ *   Z = plate depth           (profileHeight    = 0.112 m, flush)
  */
 export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 	({ numBays, specs, enabled = true, onLoadStateChange }) => {
 		const scene = useScene()
+		const abortRef = useRef<AbortController | null>(null)
 
 		useEffect(() => {
 			if (!scene || !enabled) return
-			let disposed = false
+
+			abortRef.current?.abort()
+			const ctrl = new AbortController()
+			abortRef.current = ctrl
 
 			const root = new TransformNode('upright-connectors-root', scene)
-			const allDisposables: (Mesh | TransformNode)[] = [root]
+			const disposables: (Mesh | TransformNode)[] = [root]
+			const mat = getAluminumMaterial(scene)
 
-			try {
-				onLoadStateChange?.(true)
+			onLoadStateChange?.(true)
 
-				const aluminumMat = getAluminumMaterial(scene)
+			loadGLB(scene, SHARED_FRAME_PATH, CONNECTOR_GLB, ctrl.signal)
+				.then((loaded) => {
+					if (ctrl.signal.aborted) {
+						for (const m of loaded) m.dispose()
+						onLoadStateChange?.(false)
+						return
+					}
 
-				// ── 1. Profile dimensions ────────────────────────────
-				const profileWidth = specs.profiles.upright.width   // 0.212m
-				const profileDepth = specs.profiles.upright.height  // 0.112m
+					// ── Keep only real geometry ──────────────────────
+					const rightMeshes = loaded.filter(
+						(m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0,
+					)
+					if (rightMeshes.length === 0) {
+						console.warn('[UprightConnectors] No geometry in GLB')
+						onLoadStateChange?.(false)
+						return
+					}
 
-				// ── 2. Key measurements ──────────────────────────────
-				const halfWidth = specs.halfWidth
-				const baseplateTop = specs.baseplate?.height ?? 0
+					// Dispose non-geometry nodes (__root__, scene node, etc.)
+					for (const m of loaded) {
+						if (!rightMeshes.includes(m as Mesh)) {
+							try { m.dispose() } catch { /* already gone */ }
+						}
+					}
 
-				// ── 3. Slope & tilt angle ────────────────────────────
-				const rise = specs.ridgeHeight - specs.eaveHeight
-				const fallbackSlope = halfWidth > 1e-6 ? rise / halfWidth : 0.2
-				const rafterSlope = specs.rafterSlopeAtEave ?? fallbackSlope
-				const tiltAngle = Math.atan(rafterSlope)
+					stripAndApplyMaterial(rightMeshes, mat)
 
-				// ── 4. Miter drop (same formula as Uprights.tsx) ─────
-				const miterDrop = clamp(rafterSlope * profileWidth, 0.01, 0.12)
+					// ── Target dimensions ────────────────────────────
+					const pw = specs.profiles.upright.width   // 0.212
+					const ph = specs.profiles.upright.height  // 0.112
+					const cp = specs.connectorPlate
+					const tgtX = cp?.length ?? (2 * pw)  // 0.424
+					const tgtY = cp?.height ?? pw         // 0.212
+					const tgtZ = cp?.depth  ?? ph         // 0.112
 
-				// ── 5. Upright top Y positions ───────────────────────
-				// Uprights.tsx: scaled to eaveHeight, bottom at baseplateTop
-				const uprightInnerTopY = baseplateTop + specs.eaveHeight
-				const uprightOuterTopY = uprightInnerTopY - miterDrop
+					// ── Bake center + scale into vertex data ─────────
+					// After this the geometry spans ±tgtX/2, ±tgtY/2,
+					// ±tgtZ/2 around origin.  Thin instances only need
+					// position + rotation — no scaling — so rotation
+					// naturally pivots around the plate center.
+					for (const m of rightMeshes) {
+						m.makeGeometryUnique()
+						m.rotationQuaternion = null
+						m.rotation.set(0, 0, 0)
+						m.position.setAll(0)
+						m.scaling.setAll(1)
+						m.parent = null
 
-				// Plate sits at the midpoint of the miter surface
-				const miterMidY = (uprightInnerTopY + uprightOuterTopY) / 2
+						m.refreshBoundingInfo()
+						const bb = m.getBoundingInfo().boundingBox
+						const lo = bb.minimum
+						const hi = bb.maximum
+						const sz = hi.subtract(lo)
+						const cen = lo.add(hi).scale(0.5)
 
-				// ── 6. Create plate meshes ───────────────────────────
-				const rightMesh = createPlateBox(
-					scene, 'upright-connector-r',
-					profileWidth, PLATE_THICKNESS, profileDepth,
-				)
-				rightMesh.parent = root
-				rightMesh.material = aluminumMat
-				rightMesh.setEnabled(true)
-				allDisposables.push(rightMesh)
+						const sx = sz.x > 1e-6 ? tgtX / sz.x : 1
+						const sy = sz.y > 1e-6 ? tgtY / sz.y : 1
+						const sZ = sz.z > 1e-6 ? tgtZ / sz.z : 1
 
-				const leftMesh = createPlateBox(
-					scene, 'upright-connector-l',
-					profileWidth, PLATE_THICKNESS, profileDepth,
-				)
-				leftMesh.parent = root
-				leftMesh.material = aluminumMat
-				leftMesh.setEnabled(true)
-				allDisposables.push(leftMesh)
+						// v' = S × (v − center) = S×v − S×center
+						m.bakeTransformIntoVertices(
+							Matrix.Compose(
+								new Vector3(sx, sy, sZ),
+								Quaternion.Identity(),
+								new Vector3(-cen.x * sx, -cen.y * sy, -cen.z * sZ),
+							),
+						)
+						m.refreshBoundingInfo()
+					}
 
-				// ── 7. Build instance transforms ─────────────────────
-				// Position: X at upright center (±halfWidth),
-				//           Y at miter midpoint,
-				//           Z at each bay line.
-				// Rotation: Z-axis tilt to match the miter angle.
-				//   RIGHT: +tiltAngle tilts inner edge up
-				//   LEFT:  -tiltAngle tilts inner edge up
-				const totalLength = numBays * specs.bayDistance
-				const halfLength = totalLength / 2
-				const numLines = numBays + 1
+					// ── Left-side meshes (X-mirrored geometry) ───────
+					// Clone → flip X in vertices → reverse triangle
+					// winding so normals face outward.  No negative-
+					// scale hack, so backface culling works correctly.
+					const leftMeshes: Mesh[] = []
+					for (const m of rightMeshes) {
+						const c = m.clone(m.name + '-L', null)
+						if (!(c instanceof Mesh)) continue
+						c.makeGeometryUnique()
+						c.material = mat
 
-				const rightTransforms: InstanceTransform[] = []
-				const leftTransforms: InstanceTransform[] = []
+						// Mirror positions + normals across X
+						c.bakeTransformIntoVertices(Matrix.Scaling(-1, 1, 1))
 
-				for (let i = 0; i < numLines; i++) {
-					const bayZ = i * specs.bayDistance - halfLength
+						// Reverse triangle winding (swap 1st ↔ 3rd index)
+						const idx = c.getIndices()
+						if (idx) {
+							for (let i = 0; i < idx.length; i += 3) {
+								const tmp = idx[i]
+								idx[i] = idx[i + 2]
+								idx[i + 2] = tmp
+							}
+							c.setIndices(idx)
+						}
 
-					// RIGHT (+X): outer edge slopes DOWN, so tilt is negative Z
-					rightTransforms.push({
-						position: new Vector3(halfWidth, miterMidY, bayZ),
-						rotation: new Vector3(0, 0, -tiltAngle),
-					})
+						c.refreshBoundingInfo()
+						leftMeshes.push(c)
+					}
 
-					// LEFT (−X): outer edge slopes DOWN, so tilt is positive Z
-					leftTransforms.push({
-						position: new Vector3(-halfWidth, miterMidY, bayZ),
-						rotation: new Vector3(0, 0, tiltAngle),
-					})
-				}
+					// ── Miter geometry (matching Uprights.tsx) ───────
+					const hw = specs.halfWidth
+					const bpTop = specs.baseplate?.height ?? 0
+					const rise = specs.ridgeHeight - specs.eaveHeight
+					const slope = specs.rafterSlopeAtEave ?? (hw > 1e-6 ? rise / hw : 0.2)
+					const tilt = Math.atan(slope)
+					const drop = clamp(slope * pw, 0.01, 0.12)
 
-				if (disposed) return
+					const innerTopY = bpTop + specs.eaveHeight
+					const outerTopY = innerTopY - drop
+					const midY = (innerTopY + outerTopY) / 2
 
-				createFrozenThinInstances(rightMesh, rightTransforms)
-				createFrozenThinInstances(leftMesh, leftTransforms)
+					// ── Thin-instance transforms ─────────────────────
+					const totLen = numBays * specs.bayDistance
+					const halfLen = totLen / 2
+					const nLines = numBays + 1
 
-				console.log(
-					'[UprightConnectors]',
-					`${numLines * 2} instances |`,
-					`plate: ${(profileWidth * 1000).toFixed(0)}x${(PLATE_THICKNESS * 1000).toFixed(0)}x${(profileDepth * 1000).toFixed(0)}mm |`,
-					`miterDrop: ${(miterDrop * 1000).toFixed(1)}mm |`,
-					`tilt: ${(tiltAngle * 180 / Math.PI).toFixed(1)}deg |`,
-					`miterMidY: ${miterMidY.toFixed(3)}`,
-				)
+					const rightT: InstanceTransform[] = []
+					const leftT: InstanceTransform[] = []
 
-			} catch (err) {
-				console.error('[UprightConnectors] Failed:', err)
-			} finally {
-				onLoadStateChange?.(false)
-			}
+					for (let i = 0; i < nLines; i++) {
+						const z = i * specs.bayDistance - halfLen
+
+						rightT.push({
+							position: new Vector3(hw, midY, z),
+							rotation: new Vector3(0, 0, -tilt),
+						})
+
+						leftT.push({
+							position: new Vector3(-hw, midY, z),
+							rotation: new Vector3(0, 0, tilt),
+						})
+					}
+
+					// ── Apply thin instances ─────────────────────────
+					for (const m of rightMeshes) {
+						m.parent = root
+						m.setEnabled(true)
+						createFrozenThinInstances(m, rightT)
+						disposables.push(m)
+					}
+
+					for (const m of leftMeshes) {
+						m.parent = root
+						m.setEnabled(true)
+						createFrozenThinInstances(m, leftT)
+						disposables.push(m)
+					}
+
+					onLoadStateChange?.(false)
+				})
+				.catch((err) => {
+					if (!ctrl.signal.aborted) {
+						console.error('[UprightConnectors] GLB load failed:', err)
+					}
+					onLoadStateChange?.(false)
+				})
 
 			return () => {
-				disposed = true
-				for (const d of allDisposables) {
+				ctrl.abort()
+				for (const d of disposables) {
 					try { d.dispose() } catch { /* already gone */ }
 				}
 			}

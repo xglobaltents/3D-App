@@ -20,6 +20,9 @@ import {
   Vector3,
   Animation,
 } from '@babylonjs/core'
+// Side-effect imports: ensure engine.createDynamicTexture is available after tree-shaking
+import '@babylonjs/core/Engines/Extensions/engine.dynamicTexture'
+import '@babylonjs/core/Engines/WebGPU/Extensions/engine.dynamicTexture'
 import { GridMaterial } from '@babylonjs/materials'
 import {
   SCENE_CONFIG,

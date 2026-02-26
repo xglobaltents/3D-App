@@ -27,6 +27,8 @@ export interface TentSpecs {
   getArchHeightAtEave?: (x: number) => number
   profiles: ProfileSpecs
   baseplate: BaseplateSpecs
+  /** Connector plate joining upright top to arch bottom. */
+  connectorPlate?: ConnectorPlateSpecs
   gableSupportPositions: number[]
   mainPurlinX: number[]
   intermediatePurlinX: number[]
@@ -53,6 +55,15 @@ export interface BaseplateSpecs {
   thickness: number
   /** Visual height of the full baseplate assembly (plate + flanges) after uniform scaling. */
   height: number
+}
+
+export interface ConnectorPlateSpecs {
+  /** Face length — how far the plate extends inward toward the arch (m). */
+  length: number
+  /** Vertical extent / face height of the plate (m). */
+  height: number
+  /** Depth along the tent length axis (m). */
+  depth: number
 }
 
 // ─── Component Props ─────────────────────────────────────────────────────────
