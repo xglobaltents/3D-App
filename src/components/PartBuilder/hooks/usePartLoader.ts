@@ -54,6 +54,9 @@ export function usePartLoader(
   const [dimensions, setDimensions] = useState({ w: 0, h: 0, d: 0 })
   const [showBoundingBox, setShowBoundingBox] = useState(true)
 
+  // Cancellation guard: incremented on every loadPart call so stale loads bail out
+  const loadGenRef = useRef(0)
+
   const disposeBoundingBox = useCallback(() => {
     safeDispose(boundingBoxRef.current)
     boundingBoxRef.current = null
@@ -121,12 +124,22 @@ export function usePartLoader(
 
   const loadPart = useCallback(
     async (scene: Scene, glb: GLBOption) => {
+      // Bump generation so any in-flight load from a previous call is discarded
+      const gen = ++loadGenRef.current
+
       onBeforeLoad()
       disposePart()
       setLoading(true)
 
       try {
         const loaded = await loadGLB(scene, glb.folder, glb.file)
+
+        // If another loadPart was called while we were awaiting, discard this result
+        if (gen !== loadGenRef.current) {
+          for (const m of loaded) safeDispose(m)
+          return
+        }
+
         const rootMesh = loaded.find((m) => m.name === '__root__')
         const meshes = loaded.filter(
           (m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0
