@@ -99,13 +99,11 @@ Configured in `vite.config.ts` and `tsconfig.json`:
 | Alias | Path |
 |-------|------|
 | `@/` | `src/` |
-| `@tents/` | `src/tents/` |
-| `@lib/` | `src/lib/` |
 
 Usage:
 ```typescript
-import { loadGLB } from '@/lib/utils/glbLoader'
-import { TENT_SPECS } from '@tents/PremiumArchTent/15m/specs'
+import { loadGLB } from '@/lib/utils/GLBLoader'
+import { TENT_SPECS } from '@/tents/PremiumArchTent/15m/specs'
 ```
 
 ---

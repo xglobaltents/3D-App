@@ -1,6 +1,6 @@
 # Copilot Instructions
 
-3D Tent Configurator built with **React 19**, **Babylon.js 8**, and **react-babylonjs**. Uses Vite for builds.
+3D Tent Configurator built with **React 19**, **Babylon.js 8** (direct integration, no react-babylonjs wrapper), and **TypeScript 5.9**. Uses Vite for builds.
 
 ## Architecture
 
@@ -72,7 +72,7 @@ npm run lint     # ESLint
 2. **GLB files go in `public/`** — never in `src/`
 3. **Use `specs.ts` for dimensions** — no hardcoded measurements in components
 4. **Use thin instances for repeated geometry** — `createThinInstances()` not `.clone()`
-5. **Use `StandardMaterial` for frame** — `PBRMaterial` only for covers/reflective surfaces
+5. **`PBRMaterial` for all materials** — frame and cover parts both use PBR for consistent quality
 6. **Share materials** — don't create per-instance materials in loops
 7. **No emojis in the app** — keep UI text clean without emoji characters
 

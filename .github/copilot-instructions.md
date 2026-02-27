@@ -1,6 +1,6 @@
 # Copilot Instructions
 
-3D tent configurator using **React 19**, **Babylon.js 8**, and **react-babylonjs**. Vite build tooling.
+3D tent configurator using **React 19**, **Babylon.js 8** (direct integration, no react-babylonjs wrapper), and **TypeScript 5.9**. Vite build tooling.
 
 ## Architecture
 
