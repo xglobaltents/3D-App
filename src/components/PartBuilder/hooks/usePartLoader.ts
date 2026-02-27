@@ -13,6 +13,8 @@ import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import { roundTo4 } from '../utils'
 import { safeDispose, safeDisposeArray } from '../utils'
 import type { GLBOption } from '../catalogue'
+import type { AxisScale } from '../types'
+import { DEFAULT_SCALE, clampAxisScale } from '../types'
 
 interface UsePartLoaderOptions {
   rootRef: React.RefObject<TransformNode | null>
@@ -24,15 +26,15 @@ export interface UsePartLoaderReturn {
   modelNodeRef: React.RefObject<TransformNode | null>
   meshesRef: React.RefObject<Mesh[]>
   loading: boolean
-  uniformScale: number
+  axisScale: AxisScale
   dimensions: { w: number; h: number; d: number }
   showBoundingBox: boolean
 
-  setUniformScale: (scale: number) => void
+  setAxisScale: (scale: AxisScale) => void
   setShowBoundingBox: (show: boolean) => void
   loadPart: (scene: Scene, glb: GLBOption) => Promise<void>
   updateBoundingBox: (scene: Scene) => void
-  applyScale: (scale: number) => void
+  applyAxisScale: (scale: AxisScale) => void
   disposePart: () => void
 }
 
@@ -50,7 +52,7 @@ export function usePartLoader(
   const partNodeLocalRef = useRef<TransformNode | null>(null)
 
   const [loading, setLoading] = useState(false)
-  const [uniformScale, setUniformScale] = useState(1)
+  const [axisScale, setAxisScale] = useState<AxisScale>({ ...DEFAULT_SCALE })
   const [dimensions, setDimensions] = useState({ w: 0, h: 0, d: 0 })
   const [showBoundingBox, setShowBoundingBox] = useState(true)
 
@@ -115,11 +117,12 @@ export function usePartLoader(
     [showBoundingBox, disposeBoundingBox]
   )
 
-  const applyScale = useCallback((scale: number) => {
+  const applyAxisScale = useCallback((scale: AxisScale) => {
+    const clamped = clampAxisScale(scale)
     if (modelNodeRef.current) {
-      modelNodeRef.current.scaling.setAll(scale)
+      modelNodeRef.current.scaling.set(clamped.x, clamped.y, clamped.z)
     }
-    setUniformScale(scale)
+    setAxisScale({ ...clamped })
   }, [])
 
   const loadPart = useCallback(
@@ -215,7 +218,12 @@ export function usePartLoader(
         if (maxExtent > 5) {
           modelNode.scaling.scaleInPlace(1 / maxExtent)
         }
-        setUniformScale(roundTo4(modelNode.scaling.x))
+        const s = {
+          x: roundTo4(modelNode.scaling.x),
+          y: roundTo4(modelNode.scaling.y),
+          z: roundTo4(modelNode.scaling.z),
+        }
+        setAxisScale(s)
 
         // Notify parent
         onLoaded(partNode, modelNode, meshes)
@@ -232,14 +240,14 @@ export function usePartLoader(
     modelNodeRef,
     meshesRef,
     loading,
-    uniformScale,
+    axisScale,
     dimensions,
     showBoundingBox,
-    setUniformScale,
+    setAxisScale,
     setShowBoundingBox,
     loadPart,
     updateBoundingBox,
-    applyScale,
+    applyAxisScale,
     disposePart,
   }
 }

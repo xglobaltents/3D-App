@@ -1,5 +1,6 @@
 import { useCallback, useState } from 'react'
-import type { SavedConfig, TransformValues, MirrorFlags } from '../types'
+import type { SavedConfig, TransformValues, MirrorFlags, AxisScale } from '../types'
+import { DEFAULT_SCALE } from '../types'
 import { loadConfigs, saveConfigs } from '../utils'
 import type { GLBOption } from '../catalogue'
 
@@ -10,7 +11,7 @@ export interface UsePartStorageReturn {
   save: (
     partIndex: number,
     transform: TransformValues,
-    uniformScale: number,
+    axisScale: AxisScale,
     mirrors: MirrorFlags,
     parts: GLBOption[]
   ) => void
@@ -36,7 +37,7 @@ export function usePartStorage(
     (
       partIndex: number,
       transform: TransformValues,
-      uniformScale: number,
+      axisScale: AxisScale,
       mirrors: MirrorFlags,
       parts: GLBOption[]
     ) => {
@@ -50,7 +51,7 @@ export function usePartStorage(
           name,
           partIndex,
           transform,
-          uniformScale,
+          axisScale,
           mirrors,
           timestamp: Date.now(),
         },
@@ -64,6 +65,13 @@ export function usePartStorage(
 
   const load = useCallback(
     (config: SavedConfig) => {
+      // Backward compat: old saves had uniformScale, no axisScale
+      if (!config.axisScale && config.uniformScale != null) {
+        const s = config.uniformScale
+        config = { ...config, axisScale: { x: s, y: s, z: s } }
+      } else if (!config.axisScale) {
+        config = { ...config, axisScale: { ...DEFAULT_SCALE } }
+      }
       onLoad(config)
     },
     [onLoad]

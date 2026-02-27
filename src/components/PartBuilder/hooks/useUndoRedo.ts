@@ -1,16 +1,16 @@
 import { useCallback, useRef, useState } from 'react'
-import type { TransformValues, UndoEntry } from '../types'
+import type { TransformValues, UndoEntry, AxisScale } from '../types'
 
 interface UseUndoRedoReturn {
-  pushUndo: (transform: TransformValues, uniformScale: number) => void
+  pushUndo: (transform: TransformValues, axisScale: AxisScale) => void
   undo: (
     currentTransform: TransformValues,
-    currentScale: number,
+    currentScale: AxisScale,
     restore: (entry: UndoEntry) => void
   ) => void
   redo: (
     currentTransform: TransformValues,
-    currentScale: number,
+    currentScale: AxisScale,
     restore: (entry: UndoEntry) => void
   ) => void
   undoCount: number
@@ -29,8 +29,8 @@ export function useUndoRedo(): UseUndoRedoReturn {
   const [undoCount, setUndoCount] = useState(0)
   const [redoCount, setRedoCount] = useState(0)
 
-  const pushUndo = useCallback((transform: TransformValues, uniformScale: number) => {
-    undoStack.current.push({ transform: { ...transform }, uniformScale })
+  const pushUndo = useCallback((transform: TransformValues, axisScale: AxisScale) => {
+    undoStack.current.push({ transform: { ...transform }, axisScale: { ...axisScale } })
     if (undoStack.current.length > MAX_UNDO) {
       undoStack.current.shift()
     }
@@ -42,13 +42,13 @@ export function useUndoRedo(): UseUndoRedoReturn {
   const undo = useCallback(
     (
       currentTransform: TransformValues,
-      currentScale: number,
+      currentScale: AxisScale,
       restore: (entry: UndoEntry) => void
     ) => {
       if (!undoStack.current.length) return
       redoStack.current.push({
         transform: { ...currentTransform },
-        uniformScale: currentScale,
+        axisScale: { ...currentScale },
       })
       const entry = undoStack.current.pop()!
       restore(entry)
@@ -61,13 +61,13 @@ export function useUndoRedo(): UseUndoRedoReturn {
   const redo = useCallback(
     (
       currentTransform: TransformValues,
-      currentScale: number,
+      currentScale: AxisScale,
       restore: (entry: UndoEntry) => void
     ) => {
       if (!redoStack.current.length) return
       undoStack.current.push({
         transform: { ...currentTransform },
-        uniformScale: currentScale,
+        axisScale: { ...currentScale },
       })
       const entry = redoStack.current.pop()!
       restore(entry)

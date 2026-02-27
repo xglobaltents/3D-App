@@ -15,39 +15,25 @@ interface UprightConnectorsProps {
 const SHARED_FRAME_PATH = '/tents/SharedFrames/'
 const CONNECTOR_GLB = 'upright-connector-r.glb'
 
-/** Cached bounds to avoid repeated computeWorldMatrix calls. */
-interface BoundsResult { min: Vector3; max: Vector3; size: Vector3 }
-const boundsCache = new Map<string, BoundsResult>()
+/** GLB is authored in mm — uniform scale to metres. */
+const MODEL_SCALE = 0.001
 
-function measureWorldBounds(meshes: Mesh[], cacheKey?: string): BoundsResult {
-	if (cacheKey) {
-		const cached = boundsCache.get(cacheKey)
-		if (cached) return cached
-	}
-	let min = new Vector3(Infinity, Infinity, Infinity)
-	let max = new Vector3(-Infinity, -Infinity, -Infinity)
-	for (const m of meshes) {
-		if (m.getTotalVertices() > 0) {
-			m.computeWorldMatrix(true)
-			m.refreshBoundingInfo()
-			m.getBoundingInfo().update(m.getWorldMatrix())
-			const bb = m.getBoundingInfo().boundingBox
-			min = Vector3.Minimize(min, bb.minimumWorld)
-			max = Vector3.Maximize(max, bb.maximumWorld)
-		}
-	}
-	const result = { min, max, size: max.subtract(min) }
-	if (cacheKey) boundsCache.set(cacheKey, result)
-	return result
-}
+/**
+ * Connector-pivot offsets measured via PartBuilder on the 15 m tent.
+ * These are model-geometry constants — independent of tent size.
+ *
+ * X_OFFSET: inward from the eave line to the connector pivot.
+ * Y_OFFSET: above the upright top to the connector pivot.
+ */
+const X_OFFSET = 0.402 // halfWidth − |placement.x| = 7.5 − 7.098
+const Y_OFFSET = 0.191 // placement.y − (baseplateTop + eaveHeight) = 3.691 − 3.5
 
 /**
  * UprightConnectors — loads the connector plate GLB and places it at
- * the top of each upright on both sides of the tent, tilted to follow
- * the arch slope.
+ * the top of each upright on both sides of the tent.
  *
- * Follows the same pattern as Baseplates: uniform scaling to preserve
- * the original GLB design, then thin instances for GPU efficiency.
+ * Right side uses the original mesh; left side uses a clone mirrored
+ * via rotation.y = π.  Thin instances for GPU efficiency.
  */
 export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 	({ numBays, specs, enabled = true, onLoadStateChange }) => {
@@ -60,8 +46,6 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 			abortRef.current?.abort()
 			const ctrl = new AbortController()
 			abortRef.current = ctrl
-
-			boundsCache.clear()
 
 			const root = new TransformNode('upright-connectors-root', scene)
 			const allDisposables: (Mesh | TransformNode)[] = [root]
@@ -85,7 +69,7 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						return
 					}
 
-					// Dispose non-geometry clones (e.g. __root__) to prevent leaks
+					// Dispose non-geometry nodes (e.g. __root__) to prevent leaks
 					for (const m of loaded) {
 						if (!rightMeshes.includes(m as Mesh)) {
 							try { m.dispose() } catch { /* already gone */ }
@@ -95,44 +79,21 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					const mat = getAluminumMaterial(scene)
 					stripAndApplyMaterial(rightMeshes, mat)
 
-					// ── Build right-side template ──
-					const template = new TransformNode('connector-template', scene)
+					// Reset mesh transforms — thin instances carry all placement data
 					for (const m of rightMeshes) {
 						m.rotationQuaternion = null
-						m.rotation.set(0, 0, 0)
+						m.rotation.setAll(0)
 						m.position.setAll(0)
 						m.scaling.setAll(1)
-						m.parent = template
 					}
 
-					template.rotationQuaternion = null
-					template.rotation.set(0, 0, 0)
-					template.scaling.setAll(1)
-
-					// Uniform scaling to preserve the real GLB design shape.
-					const cp = specs.connectorPlate
-					const targetDepth = cp?.depth ?? specs.profiles.upright.height
-					template.computeWorldMatrix(true)
-					const rawBounds = measureWorldBounds(rightMeshes, 'connector-raw')
-					if (rawBounds.size.z > 1e-6) {
-						const uniformScale = targetDepth / rawBounds.size.z
-						template.scaling.setAll(uniformScale)
-					}
-
-					// Compute center offset after scaling
-					template.computeWorldMatrix(true)
-					const scaledBounds = measureWorldBounds(rightMeshes, 'connector-scaled')
-					const centerOffsetX = (scaledBounds.min.x + scaledBounds.max.x) / 2
-					const centerOffsetY = (scaledBounds.min.y + scaledBounds.max.y) / 2
-					const centerOffsetZ = (scaledBounds.min.z + scaledBounds.max.z) / 2
-
-					// ── Clone right meshes to create left-side (mirrored) ──
+					// Clone right meshes for left-side (mirrored via rotation.y = π)
 					const leftMeshes: Mesh[] = []
 					for (const m of rightMeshes) {
 						const clone = m.clone(m.name + '-left', null)
 						if (clone) {
 							clone.rotationQuaternion = null
-							clone.rotation.set(0, Math.PI, 0)  // mirror via Y rotation
+							clone.rotation.set(0, Math.PI, 0)
 							clone.position.setAll(0)
 							clone.scaling.setAll(1)
 							clone.material = mat
@@ -142,58 +103,39 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					}
 
 					// ── Position calculations ──
-					const profileWidth = specs.profiles.upright.width
 					const halfWidth = specs.halfWidth
 					const baseplateTop = specs.baseplate?.height ?? 0
-					const rise = specs.ridgeHeight - specs.eaveHeight
-					const slope = specs.rafterSlopeAtEave ?? (halfWidth > 1e-6 ? rise / halfWidth : 0.2)
-					const tilt = Math.atan(slope)
-
-					// Y position: snap plate bottom to the upright top
-					// rotation.x = PI negates Y, so the plate geometry center
-					// in world = position.y - centerOffsetY
-					const uprightTopY = baseplateTop + specs.eaveHeight
-					const yBase = uprightTopY + centerOffsetY
-
-					// X position: inward shift
-					const plateLength = scaledBounds.size.x
-					const inwardShift = Math.max(0, (plateLength - profileWidth) / 2)
+					const yPos = baseplateTop + specs.eaveHeight + Y_OFFSET
 
 					const totalLength = numBays * specs.bayDistance
 					const halfLength = totalLength / 2
 					const numLines = numBays + 1
+
+					const scaling = new Vector3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE)
 
 					// ── Right-side transforms ──
 					const rightTransforms: InstanceTransform[] = []
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
 						rightTransforms.push({
-							position: new Vector3(
-								-(halfWidth - inwardShift) + centerOffsetX,
-								yBase,
-								z - centerOffsetZ,
-							),
-							rotation: new Vector3(Math.PI, 0, -tilt),
-							scaling: template.scaling.clone(),
+							position: new Vector3(-(halfWidth - X_OFFSET), yPos, z),
+							rotation: new Vector3(Math.PI, 0, 0),
+							scaling,
 						})
 					}
 
-					// ── Left-side transforms ──
+					// ── Left-side transforms (x-mirrored) ──
 					const leftTransforms: InstanceTransform[] = []
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
 						leftTransforms.push({
-							position: new Vector3(
-								(halfWidth - inwardShift) - centerOffsetX,
-								yBase,
-								z - centerOffsetZ,
-							),
-							rotation: new Vector3(Math.PI, 0, tilt),
-							scaling: template.scaling.clone(),
+							position: new Vector3(halfWidth - X_OFFSET, yPos, z),
+							rotation: new Vector3(Math.PI, 0, 0),
+							scaling,
 						})
 					}
 
-					// Apply thin instances — right side (original mesh)
+					// Apply thin instances — right side
 					for (const src of rightMeshes) {
 						src.parent = root
 						src.position.setAll(0)
@@ -214,9 +156,6 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						createFrozenThinInstances(src, leftTransforms)
 						allDisposables.push(src)
 					}
-
-					// Dispose template container
-					template.dispose()
 
 					onLoadStateChange?.(false)
 				})

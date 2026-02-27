@@ -30,8 +30,8 @@ import {
 } from '@babylonjs/core'
 import { useScene } from '@/engine/BabylonProvider'
 import type { TentSpecs } from '@/types'
-import type { MirrorFlags, PanelTab, TransformValues, SavedConfig } from './types'
-import { EMPTY_MIRRORS } from './types'
+import type { MirrorFlags, PanelTab, TransformValues, SavedConfig, AxisScale } from './types'
+import { EMPTY_MIRRORS, DEFAULT_SCALE, MIN_SCALE, MAX_SCALE, clampAxisScale } from './types'
 import { roundTo4, radToDeg, safeDispose, safeDisposeArray } from './utils'
 import { GLB_PARTS, MIRROR_CONFIGS } from './catalogue'
 import type { AlignSpecs } from './hooks/usePartTransform'
@@ -92,6 +92,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   const [copied, setCopied] = useState(false)
   const [showGizmo, setShowGizmo] = useState(false)
   const [gizmoSize, setGizmoSize] = useState(3)
+  const [lockScale, setLockScale] = useState(true)
 
   // ── Undo / Redo ────────────────────────────────────────────────────────
   const { pushUndo, undo, redo, undoCount, redoCount, resetStacks } = useUndoRedo()
@@ -120,7 +121,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   }, [scene])
 
   const pushUndoFromTransform = useCallback(() => {
-    pushUndo(partTransformHook.readTransform(), partLoader.uniformScale)
+    pushUndo(partTransformHook.readTransform(), partLoader.axisScale)
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pushUndo])
 
@@ -177,9 +178,9 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   }, [partTransformHook])
 
   const onGizmoDragEnd = useCallback(() => {
-    pushUndo(partTransformHook.readTransform(), partLoader.uniformScale)
+    pushUndo(partTransformHook.readTransform(), partLoader.axisScale)
     partTransformHook.syncFromNode()
-  }, [pushUndo, partTransformHook, partLoader.uniformScale])
+  }, [pushUndo, partTransformHook, partLoader.axisScale])
 
   useGizmoManager({
     scene,
@@ -192,12 +193,13 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
 
   // ── Undo/redo restore callback ─────────────────────────────────────────
   const restoreEntry = useCallback(
-    (entry: { transform: TransformValues; uniformScale: number }) => {
+    (entry: { transform: TransformValues; axisScale: AxisScale }) => {
       partTransformHook.writeTransform(entry.transform)
       partTransformHook.setTransformDirect(entry.transform)
-      partLoader.applyScale(entry.uniformScale)
+      const clamped = clampAxisScale(entry.axisScale)
+      partLoader.applyAxisScale(clamped)
       for (const m of mirrorSystem.mirrorInstancesRef.current) {
-        m.modelNode.scaling.setAll(entry.uniformScale)
+        m.modelNode.scaling.set(clamped.x, clamped.y, clamped.z)
       }
       mirrorSystem.updateMirrorPositions()
       if (scene) partLoader.updateBoundingBox(scene)
@@ -206,26 +208,30 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   )
 
   const handleUndo = useCallback(() => {
-    undo(partTransformHook.readTransform(), partLoader.uniformScale, restoreEntry)
-  }, [undo, partTransformHook, partLoader.uniformScale, restoreEntry])
+    undo(partTransformHook.readTransform(), partLoader.axisScale, restoreEntry)
+  }, [undo, partTransformHook, partLoader.axisScale, restoreEntry])
 
   const handleRedo = useCallback(() => {
-    redo(partTransformHook.readTransform(), partLoader.uniformScale, restoreEntry)
-  }, [redo, partTransformHook, partLoader.uniformScale, restoreEntry])
+    redo(partTransformHook.readTransform(), partLoader.axisScale, restoreEntry)
+  }, [redo, partTransformHook, partLoader.axisScale, restoreEntry])
 
   // ── Storage ────────────────────────────────────────────────────────────
   const handleStorageLoad = useCallback(
     (config: SavedConfig) => {
-      pushUndo(partTransformHook.readTransform(), partLoader.uniformScale)
+      pushUndo(partTransformHook.readTransform(), partLoader.axisScale)
       setSelectedPart(config.partIndex)
+      const savedScale = config.axisScale ?? (config.uniformScale != null
+        ? { x: config.uniformScale, y: config.uniformScale, z: config.uniformScale }
+        : { ...DEFAULT_SCALE })
       // Wait for part to load then apply saved state
       setTimeout(() => {
         partTransformHook.writeTransform(config.transform)
         partTransformHook.setTransformDirect(config.transform)
-        partLoader.applyScale(config.uniformScale)
+        const clampedSaved = clampAxisScale(savedScale)
+        partLoader.applyAxisScale(clampedSaved)
         setMirrors(config.mirrors)
         for (const m of mirrorSystem.mirrorInstancesRef.current) {
-          m.modelNode.scaling.setAll(config.uniformScale)
+          m.modelNode.scaling.set(clampedSaved.x, clampedSaved.y, clampedSaved.z)
         }
         mirrorSystem.updateMirrorPositions()
         if (scene) partLoader.updateBoundingBox(scene)
@@ -424,13 +430,14 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
     return () => window.removeEventListener('keydown', handler)
   }, [partTransformHook, pushUndoFromTransform, handleUndo, handleRedo])
 
-  // ── Scale change handler ───────────────────────────────────────────────
-  const handleScaleChange = useCallback(
-    (s: number) => {
-      pushUndo(partTransformHook.readTransform(), partLoader.uniformScale)
-      partLoader.applyScale(s)
+  // ── Scale change handlers ──────────────────────────────────────────────
+  const applyAxisScaleAll = useCallback(
+    (newScale: AxisScale) => {
+      const clamped = clampAxisScale(newScale)
+      pushUndo(partTransformHook.readTransform(), partLoader.axisScale)
+      partLoader.applyAxisScale(clamped)
       for (const m of mirrorSystem.mirrorInstancesRef.current) {
-        m.modelNode.scaling.setAll(s)
+        m.modelNode.scaling.set(clamped.x, clamped.y, clamped.z)
       }
       mirrorSystem.updateMirrorPositions()
       if (scene) partLoader.updateBoundingBox(scene)
@@ -438,11 +445,24 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
     [pushUndo, partTransformHook, partLoader, mirrorSystem, scene]
   )
 
+  const handleAxisScaleChange = useCallback(
+    (axis: 'x' | 'y' | 'z', val: number) => {
+      const cur = partLoader.axisScale
+      if (lockScale) {
+        // Uniform: apply the same value to all axes
+        applyAxisScaleAll({ x: val, y: val, z: val })
+      } else {
+        applyAxisScaleAll({ ...cur, [axis]: val })
+      }
+    },
+    [partLoader.axisScale, lockScale, applyAxisScaleAll]
+  )
+
   // ── Copy / Export ──────────────────────────────────────────────────────
   const handleCopy = useCallback(
     async (asCode: boolean) => {
       const v = partTransformHook.readTransform()
-      const modelScale = partLoader.uniformScale
+      const sc = partLoader.axisScale
       const glb = GLB_PARTS[selectedPart]
       const pos = new Vector3(v.px, v.py, v.pz)
       const rot = new Vector3(v.rx, v.ry, v.rz)
@@ -451,7 +471,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       if (asCode) {
         let code = `// -- ${glb.label} --\n`
         code += `const meshes = await loadGLB(scene, '${glb.folder}', '${glb.file}')\n`
-        code += `modelNode.scaling.setAll(${modelScale})\n\n`
+        code += `modelNode.scaling.set(${sc.x}, ${sc.y}, ${sc.z})\n\n`
         code += `// Original\n`
         code += `node.position.set(${v.px}, ${v.py}, ${v.pz})\n`
         code += `node.rotation.set(${v.rx}, ${v.ry}, ${v.rz}) // (${radToDeg(v.rx)}deg, ${radToDeg(v.ry)}deg, ${radToDeg(v.rz)}deg)\n`
@@ -485,7 +505,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
           {
             part: glb.label,
             glb: `${glb.folder}${glb.file}`,
-            modelScale,
+            scale: sc,
             mirrors,
             dims: partLoader.dimensions,
             placements,
@@ -511,11 +531,11 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
     storage.save(
       selectedPart,
       partTransformHook.readTransform(),
-      partLoader.uniformScale,
+      partLoader.axisScale,
       mirrors,
       GLB_PARTS
     )
-  }, [storage, selectedPart, partTransformHook, partLoader.uniformScale, mirrors])
+  }, [storage, selectedPart, partTransformHook, partLoader.axisScale, mirrors])
 
   // ── Mirror count ───────────────────────────────────────────────────────
   const mirrorCount = countMirrors(mirrors)
@@ -587,26 +607,42 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
           {partLoader.dimensions.d.toFixed(3)} m
         </div>
       )}
+
+      {/* Per-axis scale controls */}
       <div className={styles.row}>
         <span className={styles.miniLabel}>Scale</span>
-        <input
-          type="range"
-          min={0.001}
-          max={5}
-          step={0.001}
-          className={styles.slider}
-          value={partLoader.uniformScale}
-          onChange={(e) => handleScaleChange(+e.target.value)}
-        />
-        <input
-          type="number"
-          step={0.01}
-          className={styles.numberInput}
-          style={{ width: 52 }}
-          value={partLoader.uniformScale}
-          onChange={(e) => handleScaleChange(+e.target.value || 1)}
-        />
+        <button
+          className={`${styles.stepBtn} ${lockScale ? styles.stepBtnActive : ''}`}
+          onClick={() => setLockScale(!lockScale)}
+          title={lockScale ? 'Uniform (locked)' : 'Per-axis (unlocked)'}
+        >
+          {lockScale ? 'Uniform' : 'Per-Axis'}
+        </button>
       </div>
+      {(['x', 'y', 'z'] as const).map((axis) => (
+        <div key={axis} className={styles.row}>
+          <span className={styles.miniLabel} style={{ width: 14, textAlign: 'center', textTransform: 'uppercase' }}>{axis}</span>
+          <input
+            type="range"
+            min={0.001}
+            max={5}
+            step={0.001}
+            className={styles.slider}
+            value={partLoader.axisScale[axis]}
+            onChange={(e) => handleAxisScaleChange(axis, +e.target.value)}
+          />
+          <input
+            type="number"
+            min={MIN_SCALE}
+            max={MAX_SCALE}
+            step={0.01}
+            className={styles.numberInput}
+            style={{ width: 56 }}
+            value={partLoader.axisScale[axis]}
+            onChange={(e) => handleAxisScaleChange(axis, +e.target.value || MIN_SCALE)}
+          />
+        </div>
+      ))}
 
       {/* Step size */}
       <div className={styles.row}>

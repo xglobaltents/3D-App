@@ -45,11 +45,33 @@ export interface MirrorInstance {
   mat: import('@babylonjs/core').PBRMetallicRoughnessMaterial
 }
 
+/* ─── Scale ───────────────────────────────────────────────────────────────── */
+
+export interface AxisScale {
+  x: number
+  y: number
+  z: number
+}
+
+export const DEFAULT_SCALE: AxisScale = { x: 1, y: 1, z: 1 }
+export const MIN_SCALE = 0.001
+export const MAX_SCALE = 5
+
+/** Clamp a single scale value to the allowed range */
+export function clampScale(v: number): number {
+  return Math.min(MAX_SCALE, Math.max(MIN_SCALE, v))
+}
+
+/** Clamp all axes of an AxisScale to the allowed range */
+export function clampAxisScale(s: AxisScale): AxisScale {
+  return { x: clampScale(s.x), y: clampScale(s.y), z: clampScale(s.z) }
+}
+
 /* ─── Undo/Redo ───────────────────────────────────────────────────────────── */
 
 export interface UndoEntry {
   transform: TransformValues
-  uniformScale: number
+  axisScale: AxisScale
 }
 
 /* ─── Saved Configurations ────────────────────────────────────────────────── */
@@ -58,7 +80,9 @@ export interface SavedConfig {
   name: string
   partIndex: number
   transform: TransformValues
-  uniformScale: number
+  /** @deprecated kept for backward compat with old saves */
+  uniformScale?: number
+  axisScale: AxisScale
   mirrors: MirrorFlags
   timestamp: number
 }
