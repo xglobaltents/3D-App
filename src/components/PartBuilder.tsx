@@ -15,6 +15,7 @@ import {
 	MeshBuilder,
 	TransformNode,
 	Color3,
+	Vector3,
 	GizmoManager,
 	UtilityLayerRenderer,
 	PBRMetallicRoughnessMaterial,
@@ -74,8 +75,10 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 	// Refs
 	const rootRef = useRef<TransformNode | null>(null)
 	const partNodeRef = useRef<TransformNode | null>(null)
+	const modelNodeRef = useRef<TransformNode | null>(null)
 	const partMeshesRef = useRef<Mesh[]>([])
 	const mirrorNodeRef = useRef<TransformNode | null>(null)
+	const modelMirrorRef = useRef<TransformNode | null>(null)
 	const mirrorMeshesRef = useRef<Mesh[]>([])
 	const gizmoManagerRef = useRef<GizmoManager | null>(null)
 	const referenceRef = useRef<Mesh[]>([])
@@ -83,10 +86,13 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 
 	// State
 	const [selectedPart, setSelectedPart] = useState(0)
-	const [gizmoMode, setGizmoMode] = useState<'position' | 'rotation' | 'scale'>('position')
+	const [showPositionGizmo, setShowPositionGizmo] = useState(true)
+	const [showRotationGizmo, setShowRotationGizmo] = useState(true)
+	const [showScaleGizmo, setShowScaleGizmo] = useState(false)
 	const [transform, setTransform] = useState<TransformValues>(ZERO_TRANSFORM)
 	const [mirrorEnabled, setMirrorEnabled] = useState(false)
 	const [copied, setCopied] = useState(false)
+	const [uniformScale, setUniformScale] = useState(1)
 
 	// ── Read transform from the part node ──
 	const readTransform = useCallback((): TransformValues => {
@@ -186,45 +192,108 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 		// Dispose old part
 		for (const m of partMeshesRef.current) { try { m.dispose() } catch { /* */ } }
 		partMeshesRef.current = []
+		if (modelNodeRef.current) { try { modelNodeRef.current.dispose() } catch { /* */ } }
+		modelNodeRef.current = null
 		if (partNodeRef.current) { try { partNodeRef.current.dispose() } catch { /* */ } }
 
 		// Dispose old mirror
 		for (const m of mirrorMeshesRef.current) { try { m.dispose() } catch { /* */ } }
 		mirrorMeshesRef.current = []
+		if (modelMirrorRef.current) { try { modelMirrorRef.current.dispose() } catch { /* */ } }
+		modelMirrorRef.current = null
 		if (mirrorNodeRef.current) { try { mirrorNodeRef.current.dispose() } catch { /* */ } }
 
 		const glb = GLB_PARTS[index]
 		if (!glb) return
 
 		const loaded = await loadGLB(sc, glb.folder, glb.file)
+
+		// Separate __root__ from geometry meshes
+		const rootNode = loaded.find(m => m.name === '__root__')
 		const meshes = loaded.filter(
 			(m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0,
 		)
 
-		// Dispose non-geometry
-		for (const m of loaded) {
-			if (!meshes.includes(m as Mesh)) {
-				try { m.dispose() } catch { /* */ }
-			}
+		if (meshes.length === 0) {
+			// Dispose everything
+			for (const m of loaded) { try { m.dispose() } catch { /* */ } }
+			return
 		}
-
-		if (meshes.length === 0) return
 
 		const mat = getAluminumMaterial(sc)
 		stripAndApplyMaterial(meshes, mat)
 
-		// Part node
+		// Part node — the gizmo handle the user moves
 		const partNode = new TransformNode('builder-part', sc)
 		partNode.rotationQuaternion = null
 		partNode.parent = rootRef.current
 		partNodeRef.current = partNode
 
+		// Model node — carries __root__ transform (unit scaling, coord conversion)
+		const modelNode = new TransformNode('builder-model', sc)
+		modelNode.rotationQuaternion = null
+		modelNode.parent = partNode
+		modelNodeRef.current = modelNode
+
+		// Transfer __root__ transform to model node (preserves GLB units)
+		if (rootNode) {
+			if (rootNode.rotationQuaternion) {
+				modelNode.rotationQuaternion = rootNode.rotationQuaternion.clone()
+			} else {
+				modelNode.rotation.copyFrom(rootNode.rotation)
+			}
+			modelNode.scaling.copyFrom(rootNode.scaling)
+			modelNode.position.copyFrom(rootNode.position)
+		}
+
+		// Parent geometry meshes to model node — keep their local transforms
 		for (const m of meshes) {
-			m.rotationQuaternion = null
-			m.parent = partNode
+			// Clear quaternion so Euler rotation is used (gizmo-friendly)
+			// but keep the actual rotation values
+			if (m.rotationQuaternion) {
+				const euler = m.rotationQuaternion.toEulerAngles()
+				m.rotationQuaternion = null
+				m.rotation.copyFrom(euler)
+			}
+			m.parent = modelNode
 			m.setEnabled(true)
 			m.isPickable = true
 			partMeshesRef.current.push(m)
+		}
+
+		// Dispose non-geometry clones we don't need (including __root__ clone)
+		for (const m of loaded) {
+			if (!meshes.includes(m as Mesh) && m !== rootNode) {
+				try { m.dispose() } catch { /* */ }
+			}
+		}
+		if (rootNode) { try { rootNode.dispose() } catch { /* */ } }
+
+		// Measure combined bounds after applying __root__ transform
+		partNode.computeWorldMatrix(true)
+		for (const m of meshes) {
+			m.computeWorldMatrix(true)
+			m.refreshBoundingInfo()
+		}
+
+		// Auto-scale: if the part is too large (> 5m combined extent), normalize
+		let worldMin = new Vector3(Infinity, Infinity, Infinity)
+		let worldMax = new Vector3(-Infinity, -Infinity, -Infinity)
+		for (const m of meshes) {
+			m.getBoundingInfo().update(m.getWorldMatrix())
+			const bb = m.getBoundingInfo().boundingBox
+			worldMin = Vector3.Minimize(worldMin, bb.minimumWorld)
+			worldMax = Vector3.Maximize(worldMax, bb.maximumWorld)
+		}
+		const extent = worldMax.subtract(worldMin)
+		const maxExtent = Math.max(extent.x, extent.y, extent.z)
+		if (maxExtent > 5) {
+			// Scale to ~1 meter largest dimension
+			const autoScale = 1 / maxExtent
+			modelNode.scaling.scaleInPlace(autoScale)
+			setUniformScale(autoScale)
+		} else if (maxExtent > 0) {
+			setUniformScale(1)
 		}
 
 		// Place at first right upright top by default
@@ -235,11 +304,26 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 			-((numBays * specs.bayDistance) / 2),
 		)
 
-		// Mirror node
+		// ── Mirror node ──
 		const mirrorNode = new TransformNode('builder-mirror', sc)
 		mirrorNode.rotationQuaternion = null
 		mirrorNode.parent = rootRef.current
 		mirrorNodeRef.current = mirrorNode
+
+		// Mirror model — same __root__ transform
+		const modelMirror = new TransformNode('builder-model-mirror', sc)
+		modelMirror.rotationQuaternion = null
+		modelMirror.parent = mirrorNode
+		modelMirrorRef.current = modelMirror
+
+		// Copy model transform to mirror model
+		if (modelNode.rotationQuaternion) {
+			modelMirror.rotationQuaternion = modelNode.rotationQuaternion.clone()
+		} else {
+			modelMirror.rotation.copyFrom(modelNode.rotation)
+		}
+		modelMirror.scaling.copyFrom(modelNode.scaling)
+		modelMirror.position.copyFrom(modelNode.position)
 
 		const mirrorMat = new PBRMetallicRoughnessMaterial('builder-mirror-mat', sc)
 		mirrorMat.baseColor = new Color3(0.2, 0.7, 0.9)
@@ -248,8 +332,14 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 		mirrorMat.alpha = 0.7
 
 		for (const m of meshes) {
-			const clone = m.clone(m.name + '-mirror', mirrorNode)
+			const clone = m.clone(m.name + '-mirror', modelMirror)
 			if (clone) {
+				// Keep same local transform as source
+				if (clone.rotationQuaternion) {
+					const euler = clone.rotationQuaternion.toEulerAngles()
+					clone.rotationQuaternion = null
+					clone.rotation.copyFrom(euler)
+				}
 				clone.material = mirrorMat
 				clone.isPickable = false
 				clone.setEnabled(mirrorEnabled)
@@ -274,13 +364,17 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 		const root = new TransformNode('builder-root', scene)
 		rootRef.current = root
 
-		// Gizmo manager
+		// Gizmo manager — enable position + rotation by default
 		const utilLayer = new UtilityLayerRenderer(scene)
 		const gm = new GizmoManager(scene, undefined, utilLayer)
 		gm.positionGizmoEnabled = true
-		gm.rotationGizmoEnabled = false
+		gm.rotationGizmoEnabled = true
 		gm.scaleGizmoEnabled = false
 		gm.usePointerToAttachGizmos = false // manual attach
+		// Enable snapping for precision
+		if (gm.gizmos.rotationGizmo) {
+			gm.gizmos.rotationGizmo.snapDistance = Math.PI / 36 // 5 degree snap
+		}
 		gizmoManagerRef.current = gm
 
 		createReferenceGeometry(scene)
@@ -293,6 +387,8 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 			for (const m of referenceRef.current) { try { m.dispose() } catch { /* */ } }
 			for (const m of partMeshesRef.current) { try { m.dispose() } catch { /* */ } }
 			for (const m of mirrorMeshesRef.current) { try { m.dispose() } catch { /* */ } }
+			if (modelNodeRef.current) { try { modelNodeRef.current.dispose() } catch { /* */ } }
+			if (modelMirrorRef.current) { try { modelMirrorRef.current.dispose() } catch { /* */ } }
 			if (partNodeRef.current) { try { partNodeRef.current.dispose() } catch { /* */ } }
 			if (mirrorNodeRef.current) { try { mirrorNodeRef.current.dispose() } catch { /* */ } }
 			root.dispose()
@@ -300,17 +396,20 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 	// eslint-disable-next-line react-hooks/exhaustive-deps
 	}, [scene])
 
-	// ── Gizmo mode switching ──
+	// ── Gizmo visibility switching ──
 	useEffect(() => {
 		const gm = gizmoManagerRef.current
 		if (!gm) return
-		gm.positionGizmoEnabled = gizmoMode === 'position'
-		gm.rotationGizmoEnabled = gizmoMode === 'rotation'
-		gm.scaleGizmoEnabled = gizmoMode === 'scale'
+		gm.positionGizmoEnabled = showPositionGizmo
+		gm.rotationGizmoEnabled = showRotationGizmo
+		gm.scaleGizmoEnabled = showScaleGizmo
+		if (gm.gizmos.rotationGizmo) {
+			gm.gizmos.rotationGizmo.snapDistance = Math.PI / 36
+		}
 		if (partNodeRef.current) {
 			gm.attachToNode(partNodeRef.current)
 		}
-	}, [gizmoMode])
+	}, [showPositionGizmo, showRotationGizmo, showScaleGizmo])
 
 	// ── Reload part on selection change ──
 	useEffect(() => {
@@ -339,14 +438,41 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 		if (mirrorEnabled) updateMirror()
 	}, [transform, mirrorEnabled, updateMirror])
 
+	// ── Uniform scale (applies to model node for visual sizing) ──
+	const applyUniformScale = useCallback((s: number) => {
+		const model = modelNodeRef.current
+		const mirrorModel = modelMirrorRef.current
+		if (!model) return
+		model.scaling.setAll(s)
+		if (mirrorModel) mirrorModel.scaling.setAll(s)
+		setUniformScale(s)
+		if (mirrorEnabled) updateMirror()
+	}, [mirrorEnabled, updateMirror])
+
+	// ── Snap to nearest upright top ──
+	const snapToUprightTop = useCallback((side: 'right' | 'left') => {
+		const node = partNodeRef.current
+		if (!node) return
+		const baseplateTop = specs.baseplate?.height ?? 0
+		const uprightTopY = baseplateTop + specs.eaveHeight
+		const halfLength = (numBays * specs.bayDistance) / 2
+		// Snap to first frame line, chosen side
+		const x = side === 'right' ? -specs.halfWidth : specs.halfWidth
+		node.position.set(x, uprightTopY, -halfLength)
+		setTransform(readTransform())
+		if (mirrorEnabled) updateMirror()
+	}, [specs, numBays, readTransform, mirrorEnabled, updateMirror])
+
 	// ── Copy transforms ──
 	const handleCopy = useCallback(() => {
 		const t = readTransform()
+		const model = modelNodeRef.current
 		const json = {
 			position: { x: t.px, y: t.py, z: t.pz },
 			rotation: { x: t.rx, y: t.ry, z: t.rz },
 			rotationDeg: { x: rad2deg(t.rx), y: rad2deg(t.ry), z: rad2deg(t.rz) },
 			scaling: { x: t.sx, y: t.sy, z: t.sz },
+			modelScale: model ? round4(model.scaling.x) : 1,
 			glb: GLB_PARTS[selectedPart],
 		}
 		navigator.clipboard.writeText(JSON.stringify(json, null, 2)).then(() => {
@@ -372,20 +498,51 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 				))}
 			</select>
 
-			{/* Gizmo mode */}
+			{/* Gizmo toggles — show multiple at once */}
 			<div style={styles.row}>
-				{(['position', 'rotation', 'scale'] as const).map(mode => (
-					<button
-						key={mode}
-						style={{
-							...styles.modeBtn,
-							...(gizmoMode === mode ? styles.modeBtnActive : {}),
-						}}
-						onClick={() => setGizmoMode(mode)}
-					>
-						{mode.charAt(0).toUpperCase() + mode.slice(1)}
-					</button>
-				))}
+				<button
+					style={{
+						...styles.modeBtn,
+						...(showPositionGizmo ? styles.modeBtnActive : {}),
+					}}
+					onClick={() => setShowPositionGizmo(!showPositionGizmo)}
+				>
+					Move
+				</button>
+				<button
+					style={{
+						...styles.modeBtn,
+						...(showRotationGizmo ? styles.modeBtnActive : {}),
+					}}
+					onClick={() => setShowRotationGizmo(!showRotationGizmo)}
+				>
+					Rotate
+				</button>
+				<button
+					style={{
+						...styles.modeBtn,
+						...(showScaleGizmo ? styles.modeBtnActive : {}),
+					}}
+					onClick={() => setShowScaleGizmo(!showScaleGizmo)}
+				>
+					Scale
+				</button>
+			</div>
+
+			{/* Snap to upright buttons */}
+			<div style={styles.row}>
+				<button
+					style={styles.snapBtn}
+					onClick={() => snapToUprightTop('right')}
+				>
+					Snap Right Upright
+				</button>
+				<button
+					style={styles.snapBtn}
+					onClick={() => snapToUprightTop('left')}
+				>
+					Snap Left Upright
+				</button>
 			</div>
 
 			{/* Transform values */}
@@ -424,6 +581,19 @@ export const PartBuilder: FC<PartBuilderProps> = memo(({ specs, numBays }) => {
 
 			<div style={styles.section}>
 				<div style={styles.sectionTitle}>Scale</div>
+				<div style={styles.fieldRow}>
+					<span style={styles.fieldLabel}>U</span>
+					<input
+						type="range"
+						min={0.01}
+						max={5}
+						step={0.01}
+						style={{ flex: 1 }}
+						value={uniformScale}
+						onChange={(e) => applyUniformScale(parseFloat(e.target.value))}
+					/>
+					<span style={styles.degLabel}>{uniformScale.toFixed(2)}x</span>
+				</div>
 				{(['sx', 'sy', 'sz'] as const).map(f => (
 					<div key={f} style={styles.fieldRow}>
 						<span style={styles.fieldLabel}>{f[1].toUpperCase()}</span>
@@ -591,6 +761,17 @@ const styles: Record<string, React.CSSProperties> = {
 		background: 'rgba(40,120,180,0.5)',
 		color: '#fff',
 		borderColor: '#4cc9f0',
+	},
+	snapBtn: {
+		flex: 1,
+		padding: '6px 4px',
+		background: 'rgba(60,120,60,0.4)',
+		color: '#8fda8f',
+		border: '1px solid rgba(100,180,100,0.3)',
+		borderRadius: 6,
+		cursor: 'pointer',
+		fontSize: 11,
+		transition: 'all 0.2s',
 	},
 	copyBtn: {
 		width: '100%',
