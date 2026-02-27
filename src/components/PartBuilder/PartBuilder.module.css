@@ -1,0 +1,764 @@
+/* ═══════════════════════════════════════════════════════════════════════════
+   PartBuilder — CSS Module
+   Matches the main app design system (dark gray + green accents via CSS vars)
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ── Panel Container ─────────────────────────────────────────────────────── */
+
+.panel {
+  position: fixed;
+  top: 10px;
+  right: 10px;
+  width: 320px;
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border-radius: 12px;
+  padding: 16px;
+  font-size: 13px;
+  line-height: 1.4;
+  border: 1px solid var(--border-color);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.4);
+  z-index: 100;
+  max-height: calc(100vh - 20px);
+  overflow-y: auto;
+}
+
+@media (max-width: 400px) {
+  .panel {
+    width: calc(100vw - 20px);
+    right: 10px;
+    top: 10px;
+  }
+}
+
+/* Scrollbar */
+.panel::-webkit-scrollbar {
+  width: 6px;
+}
+
+.panel::-webkit-scrollbar-track {
+  background: var(--bg-tertiary);
+  border-radius: 3px;
+}
+
+.panel::-webkit-scrollbar-thumb {
+  background: var(--border-color);
+  border-radius: 3px;
+}
+
+.panel::-webkit-scrollbar-thumb:hover {
+  background: var(--border-hover);
+}
+
+/* ── Header ──────────────────────────────────────────────────────────────── */
+
+.header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+.title {
+  font-size: 1.1em;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* ── Select / Dropdown ───────────────────────────────────────────────────── */
+
+.select {
+  width: 100%;
+  padding: 10px 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 13px;
+  margin-bottom: 8px;
+  outline: none;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.select:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+}
+
+.select:focus-visible {
+  border-color: var(--text-muted);
+}
+
+/* ── Dimensions Display ──────────────────────────────────────────────────── */
+
+.dimensions {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 11px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+/* ── Row / Layout ────────────────────────────────────────────────────────── */
+
+.row {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 6px;
+  align-items: center;
+}
+
+.miniLabel {
+  font-size: 0.8em;
+  color: var(--text-tertiary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+/* ── Number Input ────────────────────────────────────────────────────────── */
+
+.numberInput {
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 13px;
+  outline: none;
+  font-family: monospace;
+  transition: all 0.2s ease;
+}
+
+.numberInput:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+}
+
+.numberInput:focus-visible {
+  border-color: var(--text-muted);
+}
+
+/* ── Small Buttons ───────────────────────────────────────────────────────── */
+
+.smallBtn {
+  flex: 1;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 0.8em;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.smallBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-secondary);
+}
+
+.smallBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+.smallBtnActive {
+  background: var(--bg-tertiary);
+  border-color: #4caf50;
+  color: var(--text-primary);
+}
+
+/* ── Step Buttons ────────────────────────────────────────────────────────── */
+
+.stepBtn {
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  font-family: monospace;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.stepBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-secondary);
+}
+
+.stepBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+.stepBtnActive {
+  background: var(--bg-tertiary);
+  border-color: #4caf50;
+  color: var(--text-primary);
+}
+
+/* ── Tabs ────────────────────────────────────────────────────────────────── */
+
+.tabs {
+  display: flex;
+  gap: 2px;
+  margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-color);
+  padding-bottom: 4px;
+}
+
+.tab {
+  flex: 1;
+  padding: 8px 4px;
+  background: transparent;
+  color: var(--text-muted);
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: color 0.2s ease, border-color 0.2s ease;
+}
+
+.tab:hover {
+  color: var(--text-secondary);
+}
+
+.tab:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: -2px;
+}
+
+.tabActive {
+  color: var(--text-primary);
+  border-bottom-color: #4caf50;
+}
+
+/* ── Section ─────────────────────────────────────────────────────────────── */
+
+.section {
+  margin-bottom: 4px;
+}
+
+.sectionTitle {
+  font-size: 0.8em;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+/* ── Axis Group (big direction buttons) ──────────────────────────────────── */
+
+.axisGroup {
+  margin-bottom: 8px;
+}
+
+.axisLabel {
+  font-size: 0.8em;
+  font-weight: 600;
+  margin-bottom: 4px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.axisLabelRed { color: #ef5350; }
+.axisLabelGreen { color: #4caf50; }
+.axisLabelBlue { color: #4fc3f7; }
+
+.buttonRow {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+
+.bigBtn {
+  flex: 1;
+  padding: 14px 0;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+  min-height: 44px;
+  text-align: center;
+  transition: all 0.2s ease;
+  user-select: none;
+}
+
+.bigBtn:hover {
+  filter: brightness(1.15);
+}
+
+.bigBtn:active {
+  filter: brightness(0.9);
+  transform: scale(0.98);
+}
+
+.bigBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+.bigBtnRed {
+  background: var(--bg-tertiary);
+  border: 1px solid #ef5350;
+}
+
+.bigBtnGreen {
+  background: var(--bg-tertiary);
+  border: 1px solid #4caf50;
+}
+
+.bigBtnBlue {
+  background: var(--bg-tertiary);
+  border: 1px solid #4fc3f7;
+}
+
+/* ── Axis / Rotation Inputs ──────────────────────────────────────────────── */
+
+.axisInput {
+  width: 80px;
+  padding: 10px 6px;
+  text-align: center;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: monospace;
+  font-weight: 600;
+  outline: none;
+  transition: all 0.2s ease;
+}
+
+.axisInput:hover {
+  border-color: var(--border-hover);
+  background: var(--bg-hover);
+}
+
+.axisInput:focus-visible {
+  border-color: var(--text-muted);
+}
+
+.rotDisplay {
+  width: 80px;
+  padding: 10px 6px;
+  text-align: center;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 14px;
+  font-family: monospace;
+  font-weight: 600;
+}
+
+/* ── Alignment Buttons ───────────────────────────────────────────────────── */
+
+.alignGrid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.alignBtn {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.alignBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.alignBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+/* ── Frame Line List (Snap tab) ──────────────────────────────────────────── */
+
+.frameLineList {
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.frameLineBtn {
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  text-align: left;
+  font-family: monospace;
+  transition: all 0.2s ease;
+}
+
+.frameLineBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.frameLineBtnActive {
+  background: var(--bg-tertiary);
+  border-color: #4caf50;
+  color: var(--text-primary);
+}
+
+/* ── Save Button ─────────────────────────────────────────────────────────── */
+
+.saveBtn {
+  padding: 8px 16px;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.saveBtn:hover {
+  background: var(--bg-hover);
+  border-color: #81c784;
+}
+
+.saveBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+/* ── Config List (Saved tab) ─────────────────────────────────────────────── */
+
+.configList {
+  max-height: 200px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.configItem {
+  padding: 10px;
+  background: var(--bg-tertiary);
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.configName {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.configMeta {
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.configActions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+/* ── Tiny Buttons ────────────────────────────────────────────────────────── */
+
+.tinyBtn {
+  padding: 6px 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.tinyBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.tinyBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+.tinyBtnDanger {
+  color: #ef5350;
+}
+
+.tinyBtnDanger:hover {
+  background: rgba(239, 83, 80, 0.1);
+  border-color: #ef5350;
+  color: #ef5350;
+}
+
+/* ── Mirror Panel ────────────────────────────────────────────────────────── */
+
+.mirrorBtn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 12px;
+  margin-bottom: 6px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  text-align: left;
+  transition: all 0.2s ease;
+}
+
+.mirrorBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.mirrorBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+.mirrorBtnActive {
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+}
+
+.mirrorDot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.mirrorLabel {
+  flex: 1;
+}
+
+.mirrorState {
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.mirrorPos {
+  display: flex;
+  gap: 6px;
+  align-items: center;
+  margin-bottom: 4px;
+  padding: 6px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 11px;
+  color: var(--text-secondary);
+}
+
+.monoSmall {
+  font-family: monospace;
+  font-size: 10px;
+}
+
+/* ── Preset Buttons ──────────────────────────────────────────────────────── */
+
+.presetBtn {
+  padding: 8px 12px;
+  background: var(--bg-tertiary);
+  color: var(--text-secondary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  transition: all 0.2s ease;
+}
+
+.presetBtn:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-hover);
+  color: var(--text-primary);
+}
+
+.presetBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+/* ── Bottom Actions ──────────────────────────────────────────────────────── */
+
+.resetBtn {
+  flex: 1;
+  padding: 10px;
+  background: var(--bg-tertiary);
+  color: #ef5350;
+  border: 1px solid rgba(239, 83, 80, 0.3);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 600;
+  transition: all 0.2s ease;
+}
+
+.resetBtn:hover {
+  background: rgba(239, 83, 80, 0.1);
+  border-color: #ef5350;
+}
+
+.resetBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+.copyBtn {
+  flex: 1;
+  padding: 10px 0;
+  background: var(--bg-tertiary);
+  color: var(--text-primary);
+  border: 1px solid #4caf50;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+  text-align: center;
+  transition: all 0.2s ease;
+}
+
+.copyBtn:hover {
+  background: var(--bg-hover);
+  border-color: #81c784;
+}
+
+.copyBtn:active {
+  transform: scale(0.98);
+}
+
+.copyBtn:focus-visible {
+  outline: 2px solid #4da6ff;
+  outline-offset: 2px;
+}
+
+.info {
+  margin-top: 8px;
+  font-size: 0.75em;
+  color: var(--text-muted);
+  text-align: center;
+}
+
+/* ── Loading Overlay ─────────────────────────────────────────────────────── */
+
+.loadingOverlay {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  color: var(--text-secondary);
+  font-size: 13px;
+  gap: 8px;
+}
+
+.loadingSpinner {
+  width: 16px;
+  height: 16px;
+  border: 2px solid var(--border-color);
+  border-top-color: #4caf50;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+/* ── Slider (range input) ────────────────────────────────────────────────── */
+
+.slider {
+  flex: 1;
+  accent-color: #4caf50;
+}
+
+/* ── Responsive ──────────────────────────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .panel {
+    width: calc(100vw - 20px);
+    max-height: 50vh;
+    border-radius: 12px;
+  }
+
+  .bigBtn {
+    min-height: 44px;
+    padding: 12px 0;
+  }
+}
+
+/* ── Reduced motion ──────────────────────────────────────────────────────── */
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* ── Touch devices ───────────────────────────────────────────────────────── */
+
+@media (hover: none) and (pointer: coarse) {
+  .bigBtn,
+  .smallBtn,
+  .stepBtn,
+  .tinyBtn,
+  .alignBtn,
+  .presetBtn,
+  .mirrorBtn,
+  .frameLineBtn,
+  .tab {
+    min-height: 44px;
+  }
+
+  .bigBtn:active,
+  .smallBtn:active,
+  .tinyBtn:active {
+    transform: scale(0.96);
+    opacity: 0.85;
+  }
+}
