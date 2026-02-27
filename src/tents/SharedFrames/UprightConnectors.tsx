@@ -123,8 +123,8 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					template.computeWorldMatrix(true)
 					const scaledBounds = measureWorldBounds(rightMeshes, 'connector-scaled')
 					const centerOffsetX = (scaledBounds.min.x + scaledBounds.max.x) / 2
+					const centerOffsetY = (scaledBounds.min.y + scaledBounds.max.y) / 2
 					const centerOffsetZ = (scaledBounds.min.z + scaledBounds.max.z) / 2
-					const plateHeight = scaledBounds.size.y
 
 					// ── Clone right meshes to create left-side (mirrored) ──
 					const leftMeshes: Mesh[] = []
@@ -149,9 +149,11 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					const slope = specs.rafterSlopeAtEave ?? (halfWidth > 1e-6 ? rise / halfWidth : 0.2)
 					const tilt = Math.atan(slope)
 
-					// Y position: top of the upright
+					// Y position: snap plate bottom to the upright top
+					// rotation.x = PI negates Y, so the plate geometry center
+					// in world = position.y - centerOffsetY
 					const uprightTopY = baseplateTop + specs.eaveHeight
-					const yBase = uprightTopY - (plateHeight / 2)
+					const yBase = uprightTopY + centerOffsetY
 
 					// X position: inward shift
 					const plateLength = scaledBounds.size.x
