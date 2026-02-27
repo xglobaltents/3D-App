@@ -32,6 +32,7 @@ export const TENT_SPECS: TentSpecs = {
 		length: 0.424,   // 2x upright width, extends inward toward arch
 		height: 0.212,   // same as upright profile width
 		depth: 0.112,    // matches upright profile height (flush fit)
+		thickness: 0.008, // plate thickness mounting perpendicular
 	},
 	gableSupportPositions: [-2.5, 2.5],
 	mainPurlinX: [-2.5, 2.5],

@@ -81,6 +81,7 @@ npm run lint     # ESLint
      }
    }
    ```
+9. **Uniform scaling only for GLB models** — always use `template.scaling.clone()` for thin instance scaling. Never use negative axis scaling (e.g. `new Vector3(-s, s, s)`) to mirror — it flips normals causing black faces. Mirror via `rotation.y = Math.PI` instead.
 
 ## Adding a New Tent
 

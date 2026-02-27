@@ -64,6 +64,8 @@ export interface ConnectorPlateSpecs {
   height: number
   /** Depth along the tent length axis (m). */
   depth: number
+  /** Thickness of the plate / X-axis dimension when mounted (m). */
+  thickness?: number
 }
 
 // ─── Component Props ─────────────────────────────────────────────────────────
