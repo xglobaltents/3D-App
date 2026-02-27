@@ -8,6 +8,7 @@ import { PerformanceStats } from '@/components/PerformanceStats'
 import { Baseplates } from '@/tents/SharedFrames/Baseplates'
 import { Uprights } from '@/tents/PremiumArchTent/15m/frame/Uprights'
 import { UprightConnectors } from '@/tents/SharedFrames/UprightConnectors'
+import { PartBuilder } from '@/components/PartBuilder'
 import { TENT_SPECS as PREMIUM_ARCH_SPECS } from '@/tents/PremiumArchTent/15m/specs'
 import { getReactiveCameraConfig } from '@/lib/constants/sceneConfig'
 import { useBottomSheetDrag } from '@/hooks/useBottomSheetDrag'
@@ -75,6 +76,7 @@ function App() {
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>('default')
   const [cameraView, setCameraView] = useState<CameraView>('orbit')
   const [loadingCount, setLoadingCount] = useState(0)
+  const [builderMode, setBuilderMode] = useState(false)
 
   // (#19) Mobile bottom sheet drag gesture
   const controlsRef = useRef<HTMLDivElement>(null)
@@ -164,9 +166,15 @@ function App() {
                 <UprightConnectors
                   numBays={numBays}
                   specs={PREMIUM_ARCH_SPECS}
-                  enabled={true}
+                  enabled={!builderMode}
                   onLoadStateChange={handleLoadStateChange}
                 />
+                {builderMode && (
+                  <PartBuilder
+                    specs={PREMIUM_ARCH_SPECS}
+                    numBays={numBays}
+                  />
+                )}
               </>
             )}
         </BabylonProvider>
@@ -279,6 +287,14 @@ function App() {
             onClick={() => setShowStats(!showStats)}
           >
             {showStats ? 'Hide Stats' : 'Show Stats'}
+          </button>
+
+          <button 
+            className={`stats-toggle-btn ${builderMode ? 'active' : ''}`}
+            onClick={() => setBuilderMode(!builderMode)}
+            style={{ marginTop: 6 }}
+          >
+            {builderMode ? 'Exit Builder' : 'Part Builder'}
           </button>
         </div>
 
