@@ -55,6 +55,8 @@ export function usePartLoader(
   const [axisScale, setAxisScale] = useState<AxisScale>({ ...DEFAULT_SCALE })
   const [dimensions, setDimensions] = useState({ w: 0, h: 0, d: 0 })
   const [showBoundingBox, setShowBoundingBox] = useState(true)
+  // Reusable bounding box material to prevent leak on every update
+  const bbMatRef = useRef<StandardMaterial | null>(null)
 
   // Cancellation guard: incremented on every loadPart call so stale loads bail out
   const loadGenRef = useRef(0)
@@ -64,6 +66,12 @@ export function usePartLoader(
     boundingBoxRef.current = null
   }, [])
 
+  const disposeBoundingBoxFull = useCallback(() => {
+    disposeBoundingBox()
+    safeDispose(bbMatRef.current)
+    bbMatRef.current = null
+  }, [disposeBoundingBox])
+
   const disposePart = useCallback(() => {
     safeDisposeArray(meshesRef.current as unknown as (Mesh | null)[])
     meshesRef.current = []
@@ -71,8 +79,8 @@ export function usePartLoader(
     modelNodeRef.current = null
     safeDispose(partNodeLocalRef.current)
     partNodeLocalRef.current = null
-    disposeBoundingBox()
-  }, [disposeBoundingBox])
+    disposeBoundingBoxFull()
+  }, [disposeBoundingBoxFull])
 
   const updateBoundingBox = useCallback(
     (scene: Scene) => {
@@ -104,12 +112,16 @@ export function usePartLoader(
         depth: size.z + 0.005,
       }, scene)
 
-      const mat = new StandardMaterial('bounding-box-mat', scene)
-      mat.wireframe = true
-      mat.diffuseColor = new Color3(1, 0.9, 0)
-      mat.alpha = 0.5
+      // Reuse a single material to prevent leak on every transform update
+      if (!bbMatRef.current) {
+        const mat = new StandardMaterial('bounding-box-mat', scene)
+        mat.wireframe = true
+        mat.diffuseColor = new Color3(1, 0.9, 0)
+        mat.alpha = 0.5
+        bbMatRef.current = mat
+      }
 
-      box.material = mat
+      box.material = bbMatRef.current
       box.position = Vector3.Center(min, max)
       box.isPickable = false
       boundingBoxRef.current = box

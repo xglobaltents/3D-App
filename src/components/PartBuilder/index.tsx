@@ -94,6 +94,9 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   const [gizmoSize, setGizmoSize] = useState(3)
   const [lockScale, setLockScale] = useState(true)
 
+  // Pending saved config to apply after part loads (replaces unreliable 500ms timeout)
+  const pendingConfigRef = useRef<SavedConfig | null>(null)
+
   // ── Undo / Redo ────────────────────────────────────────────────────────
   const { pushUndo, undo, redo, undoCount, redoCount, resetStacks } = useUndoRedo()
 
@@ -141,21 +144,48 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       modelNodeRef.current = modelNode
       meshesRef.current = loadedMeshes
 
-      // Position at default location
-      partNode.position.set(
-        -specs.halfWidth,
-        baseplateTop + specs.eaveHeight,
-        lineZs[0]
-      )
+      // Check for a pending saved config to restore
+      const pending = pendingConfigRef.current
+      if (pending) {
+        pendingConfigRef.current = null
+        // Apply saved transform, scale, mirrors
+        partTransformHook.writeTransform(pending.transform)
+        partTransformHook.setTransformDirect(pending.transform)
+        const savedScale = pending.axisScale ?? (pending.uniformScale != null
+          ? { x: pending.uniformScale, y: pending.uniformScale, z: pending.uniformScale }
+          : { ...DEFAULT_SCALE })
+        const clamped = clampAxisScale(savedScale)
+        partLoader.applyAxisScale(clamped)
+        setMirrors(pending.mirrors)
 
-      // Create mirrors
-      if (scene) {
-        mirrorSystem.createMirrors(scene)
-        mirrorSystem.syncMirrorVisibility(mirrors)
+        // Create mirrors then apply scale to them
+        if (scene) {
+          mirrorSystem.createMirrors(scene)
+          for (const m of mirrorSystem.mirrorInstancesRef.current) {
+            m.modelNode.scaling.set(clamped.x, clamped.y, clamped.z)
+          }
+          mirrorSystem.syncMirrorVisibility(pending.mirrors)
+          mirrorSystem.updateMirrorPositions()
+          partLoader.updateBoundingBox(scene)
+        }
+        partTransformHook.syncFromNode()
+      } else {
+        // Default: position at default location
+        partNode.position.set(
+          -specs.halfWidth,
+          baseplateTop + specs.eaveHeight,
+          lineZs[0]
+        )
+
+        // Create mirrors
+        if (scene) {
+          mirrorSystem.createMirrors(scene)
+          mirrorSystem.syncMirrorVisibility(mirrors)
+        }
+
+        // Sync transform state
+        partTransformHook.syncFromNode()
       }
-
-      // Sync transform state
-      partTransformHook.syncFromNode()
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [specs, baseplateTop, lineZs, scene, mirrors]
@@ -219,25 +249,11 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   const handleStorageLoad = useCallback(
     (config: SavedConfig) => {
       pushUndo(partTransformHook.readTransform(), partLoader.axisScale)
+      // Store the config so onPartLoaded can apply it after the GLB finishes loading
+      pendingConfigRef.current = config
       setSelectedPart(config.partIndex)
-      const savedScale = config.axisScale ?? (config.uniformScale != null
-        ? { x: config.uniformScale, y: config.uniformScale, z: config.uniformScale }
-        : { ...DEFAULT_SCALE })
-      // Wait for part to load then apply saved state
-      setTimeout(() => {
-        partTransformHook.writeTransform(config.transform)
-        partTransformHook.setTransformDirect(config.transform)
-        const clampedSaved = clampAxisScale(savedScale)
-        partLoader.applyAxisScale(clampedSaved)
-        setMirrors(config.mirrors)
-        for (const m of mirrorSystem.mirrorInstancesRef.current) {
-          m.modelNode.scaling.set(clampedSaved.x, clampedSaved.y, clampedSaved.z)
-        }
-        mirrorSystem.updateMirrorPositions()
-        if (scene) partLoader.updateBoundingBox(scene)
-      }, 500)
     },
-    [pushUndo, partTransformHook, partLoader, mirrorSystem, scene]
+    [pushUndo, partTransformHook, partLoader]
   )
 
   const storage = usePartStorage({ onLoad: handleStorageLoad })

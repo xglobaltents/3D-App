@@ -49,18 +49,20 @@ export function useGizmoManager(
     }
   }, [scene])
 
-  // Attach drag observers helper
+  // Remove all previous observers, then re-attach fresh ones
   const attachObservers = useCallback(() => {
     const gm = gizmoManagerRef.current
     if (!gm) return
-    const attach = (gizmo: { onDragObservable?: { add: (cb: () => void) => void }; onDragEndObservable?: { add: (cb: () => void) => void } } | null) => {
-      if (!gizmo) return
+
+    // Clear + re-add observers to prevent accumulation when gizmo size changes
+    const gizmos = [gm.gizmos.positionGizmo, gm.gizmos.rotationGizmo, gm.gizmos.scaleGizmo]
+    for (const gizmo of gizmos) {
+      if (!gizmo) continue
+      gizmo.onDragObservable?.clear()
+      gizmo.onDragEndObservable?.clear()
       gizmo.onDragObservable?.add(() => onDrag())
       gizmo.onDragEndObservable?.add(() => onDragEnd())
     }
-    attach(gm.gizmos.positionGizmo)
-    attach(gm.gizmos.rotationGizmo)
-    attach(gm.gizmos.scaleGizmo)
   }, [onDrag, onDragEnd])
 
   // Toggle gizmo visibility + attach to part node

@@ -80,6 +80,10 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 					(m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0
 				)
 				if (templateMeshes.length === 0) {
+					// Dispose all loaded nodes (e.g. __root__) to prevent leaks
+					for (const m of loaded) {
+						try { m.dispose() } catch { /* already gone */ }
+					}
 					onLoadStateChange?.(false)
 					return
 				}

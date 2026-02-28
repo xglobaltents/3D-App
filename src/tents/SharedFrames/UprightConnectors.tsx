@@ -65,7 +65,10 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					)
 
 					if (rightMeshes.length === 0) {
-						onLoadStateChange?.(false)
+					// Dispose all loaded nodes (e.g. __root__) to prevent leaks
+					for (const m of loaded) {
+						try { m.dispose() } catch { /* already gone */ }
+					}
 						return
 					}
 

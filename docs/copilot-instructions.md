@@ -89,4 +89,4 @@ npm run lint     # ESLint
 - [ ] Thin instances for all repeated geometry (purlins, baseplates, etc.)
 - [ ] `mesh.freezeWorldMatrix()` for static meshes
 - [ ] Shared materials across instances
-- [ ] LOD levels for complex geometry: `mesh.addLODLevel(distance, simplifiedMesh)`
+- [ ] Do NOT use LOD on tent parts (creates visual inconsistency)

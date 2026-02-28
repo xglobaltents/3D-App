@@ -53,6 +53,9 @@ export function usePartTransform(
   const partNodeRef = useRef<TransformNode | null>(null)
 
   const [transform, setTransform] = useState<TransformValues>(ZERO_TRANSFORM)
+  // Ref mirror of transform so setField doesn't depend on transform state,
+  // preventing identity churn that would re-render all panels on every keystroke.
+  const transformRef = useRef<TransformValues>(ZERO_TRANSFORM)
   const [step, setStep] = useState(0.01)
   const [rotStep, setRotStep] = useState(5)
   const [snapEnabled, setSnapEnabled] = useState(false)
@@ -94,12 +97,14 @@ export function usePartTransform(
       }
       writeTransform(v)
     }
+    transformRef.current = v
     setTransform(v)
     onAfterChange()
   }, [readTransform, writeTransform, snapEnabled, gridSize, onAfterChange])
 
   const setTransformDirect = useCallback((v: TransformValues) => {
     writeTransform(v)
+    transformRef.current = v
     setTransform(v)
   }, [writeTransform])
 
@@ -134,12 +139,13 @@ export function usePartTransform(
   const setField = useCallback(
     (field: keyof TransformValues, val: number) => {
       pushUndo()
-      const v = { ...transform, [field]: val }
+      const v = { ...transformRef.current, [field]: val }
       writeTransform(v)
+      transformRef.current = v
       setTransform(v)
       onAfterChange()
     },
-    [transform, writeTransform, pushUndo, onAfterChange]
+    [writeTransform, pushUndo, onAfterChange]
   )
 
   const align = useCallback(
