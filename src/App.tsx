@@ -166,7 +166,7 @@ function App() {
                 <UprightConnectors
                   numBays={numBays}
                   specs={PREMIUM_ARCH_SPECS}
-                  enabled={!builderMode}
+                  enabled={true}
                   onLoadStateChange={handleLoadStateChange}
                 />
                 {builderMode && (

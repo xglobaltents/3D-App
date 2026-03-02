@@ -44,7 +44,7 @@ function measureWorldBounds(meshes: Mesh[], cacheKey?: string): BoundsResult {
  * then uses thin instances (GPU instancing) at every upright position
  * on both sides of the tent.
  *
- * Layout: (numBays + 1) x 2 baseplates at +/-width/2.
+ * Layout: (numBays + 1) x 2 baseplates at +/-halfWidth.
  * Thin instances = 1 draw call instead of N*2 clones (#24).
  */
 export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, onLoadStateChange }) => {
@@ -138,7 +138,8 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 				const groundY = -scaledBounds.min.y
 
 				// ── Build thin instance transforms ──
-				const halfWidth = specs.width / 2
+				// Use specs.halfWidth for consistency with other components
+				const halfWidth = specs.halfWidth
 				const totalLength = numBays * specs.bayDistance
 				const halfLength = totalLength / 2
 				const numLines = numBays + 1 // fence-post
