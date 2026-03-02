@@ -266,7 +266,7 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 				const groundY = -finalBounds.min.y + specs.baseplate.height
 
 				// ── Build thin instance transforms ──
-				const halfWidth = specs.width / 2
+				const halfWidth = specs.halfWidth
 				const totalLength = numBays * specs.bayDistance
 				const halfLength = totalLength / 2
 				const numLines = numBays + 1 // fence-post

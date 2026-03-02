@@ -82,6 +82,45 @@ npm run lint     # ESLint
    }
    ```
 9. **Uniform scaling only for GLB models** — always use `template.scaling.clone()` for thin instance scaling. Never use negative axis scaling (e.g. `new Vector3(-s, s, s)`) to mirror — it flips normals causing black faces. Mirror via `rotation.y = Math.PI` instead.
+10. **Never read `__root__` from `loadGLB()` results** — `loadGLB()` returns clones from `result.meshes` only. The `__root__` TransformNode lives in `result.transformNodes` and is never included. Always create your own template TransformNode with explicit rotation/scaling.
+11. **Never mutate the material singleton** — `getAluminumMaterial(scene)` returns a shared singleton. If a component needs different properties (e.g. `backFaceCulling = false`), clone it and dispose the clone in cleanup.
+12. **Use `specs.halfWidth`** — never `specs.width / 2`. All components must be consistent.
+13. **Create cloned materials before async calls** — keeps them in scope for the cleanup function. Creating inside `.then()` causes leaks.
+14. **All positions (both sides) in one transforms array** — unless geometry differs per side (e.g. miter-cut uprights). Never split left/right into separate mesh sets for symmetric parts.
+
+## GLB Loading Pattern (Frame Components)
+
+All frame components **must** follow this standard pattern. See Baseplates.tsx for the reference implementation.
+
+### Step-by-step:
+
+1. **Effect setup**: AbortController, clear boundsCache, create root TransformNode, create material (clone if needed — before async)
+2. **Load & filter**: `loadGLB()` → check abort → filter `instanceof Mesh && getTotalVertices() > 0` → dispose all non-geometry nodes
+3. **Template container**: `stripAndApplyMaterial()` → create TransformNode → clear `rotationQuaternion` on all meshes → reset mesh transforms to identity → parent to template → apply known rotation/scaling on template (never extract from `__root__`)
+4. **Bounds & offsets**: `computeWorldMatrix(true)` → `measureWorldBounds()` → compute centerOffsetX/Z
+5. **Transforms array**: ALL positions (both sides) in one array → use `template.rotation.clone()` / `template.scaling.clone()`
+6. **Apply thin instances**: reparent meshes to root → reset local transforms to identity → `setEnabled(true)` → `createFrozenThinInstances()` → track in allDisposables
+7. **Cleanup**: dispose template container → in return: abort + dispose allDisposables + dispose cloned materials
+
+### GLTF Handedness
+
+GLTF is right-handed (Y-up, +Z toward viewer), BabylonJS is left-handed (+Z away). The loader's `__root__` node carries `rotation.y = Math.PI` for conversion, but since `__root__` is invisible to `loadGLB()`, each component handles it:
+- **Baseplates**: `rotation.y = PI/2` (alignment rotation incidentally handles it; symmetric model)
+- **Uprights**: `rotation.x = -PI/2` (Z-up → Y-up; manual rotation accounts for coordinate system)
+- **Connectors**: `rotation.y = PI` in thin-instance transforms for right side; `rotation.y = 0` for left side (PI handedness + PI mirror = 0)
+
+### BackFace Culling
+
+| Component | Material | Culling | Reason |
+|-----------|----------|---------|--------|
+| Baseplates | Shared singleton | `true` (default) | Solid plate, only top visible |
+| Uprights | Shared singleton | `true` (default) | GLB has proper inner face normals baked |
+| Connectors | Cloned `aluminum-connectors` | `false` | Handedness rotation can flip winding order |
+
+### Deviations
+
+- **Asymmetric left/right geometry** (e.g. miter-cut uprights): separate mesh sets with separate transform arrays — the only valid reason to split
+- **Custom material properties**: clone before async, dispose in cleanup
 
 ## Adding a New Tent
 
