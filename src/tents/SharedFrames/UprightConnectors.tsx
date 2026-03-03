@@ -1,7 +1,7 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
-import { Mesh, TransformNode, Vector3 } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { Mesh, TransformNode, Vector3, Quaternion, Matrix } from '@babylonjs/core'
+import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 
@@ -16,48 +16,37 @@ const SHARED_FRAME_PATH = '/tents/SharedFrames/'
 const CONNECTOR_GLB = 'upright-connector-r.glb'
 
 /**
- * Connector-pivot offsets measured via PartBuilder on the 15 m tent.
+ * Connector placement measured via PartBuilder on the 15 m tent.
  *
- * X_OFFSET: inward from the eave line to the connector pivot.
- * Y_OFFSET: above the upright top (miter-cut inner edge) to the connector pivot.
+ * X_INSET:      distance inward from the eave line toward centre (m).
+ * Y_ABOVE_EAVE: distance above the eave datum (baseplateTop + eaveHeight) (m).
+ * ROLL_ANGLE:   tilt to match arch slope at eave (radians, 5°).
+ *
+ * Resolved right-side position for 15 m / 3-bay, frame line 0:
+ *   X = -(7.5 − 0.47) = −7.03
+ *   Y =  0.30 + 3.20 + 0.18 = 3.68
+ *   Z = −7.5
+ *   Rotation: pitch 180° (flipped), roll 5°
  */
-const X_OFFSET = 0.435
-const Y_OFFSET = 0.262
+const X_INSET = 0.47
+const Y_ABOVE_EAVE = 0.18
+const ROLL_ANGLE = 5 * Math.PI / 180
 
-/** Cached bounds to avoid repeated computeWorldMatrix calls. */
-interface BoundsResult { min: Vector3; max: Vector3; size: Vector3 }
-const boundsCache = new Map<string, BoundsResult>()
-
-function measureWorldBounds(meshes: Mesh[], cacheKey?: string): BoundsResult {
-	if (cacheKey) {
-		const cached = boundsCache.get(cacheKey)
-		if (cached) return cached
-	}
-	let min = new Vector3(Infinity, Infinity, Infinity)
-	let max = new Vector3(-Infinity, -Infinity, -Infinity)
-	for (const m of meshes) {
-		if (m.getTotalVertices() > 0) {
-			m.computeWorldMatrix(true)
-			m.refreshBoundingInfo()
-			m.getBoundingInfo().update(m.getWorldMatrix())
-			const bb = m.getBoundingInfo().boundingBox
-			min = Vector3.Minimize(min, bb.minimumWorld)
-			max = Vector3.Maximize(max, bb.maximumWorld)
-		}
-	}
-	const result = { min, max, size: max.subtract(min) }
-	if (cacheKey) boundsCache.set(cacheKey, result)
-	return result
-}
+/** mm → m  (GLB is authored in millimetres). */
+const GLB_SCALE = 0.001
 
 /**
- * UprightConnectors — loads the connector plate GLB and places it at
- * the top of each upright on both sides of the tent.
+ * UprightConnectors — loads the connector-plate GLB and places thin
+ * instances at the top of each upright on both sides of the tent.
  *
- * Follows the exact Baseplates pattern:
- * - Single mesh set, ALL transforms (both sides) in one array
- * - No cloning — one thin-instance buffer per mesh
- * - Bounds-based center offset compensation
+ * Mirrors the PartBuilder two-node hierarchy baked into a single matrix:
+ *
+ *   modelMatrix  = Scale(0.001) × Rotate(GLTF Y=π)         ← "modelNode"
+ *   partMatrix   = Rotate(placement) × Translate(position)  ← "partNode"
+ *   thinInstance  = modelMatrix × partMatrix
+ *
+ * No bounds-based offset is applied — the PartBuilder positions already
+ * account for the model's origin.
  */
 export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 	({ numBays, specs, enabled = true, onLoadStateChange }) => {
@@ -71,14 +60,10 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 			const ctrl = new AbortController()
 			abortRef.current = ctrl
 
-			// Clear stale bounds from previous loads
-			boundsCache.clear()
-
 			const root = new TransformNode('upright-connectors-root', scene)
 			const allDisposables: (Mesh | TransformNode)[] = [root]
 
-			// Clone material ONCE per effect — track for disposal so re-runs
-			// don't leak materials. backFaceCulling=false needed for handedness.
+			// Clone material — backFaceCulling=false for GLTF handedness rotation
 			const connectorMat = getAluminumMaterial(scene).clone('aluminum-connectors')
 			connectorMat.backFaceCulling = false
 
@@ -108,75 +93,62 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						return
 					}
 
-					// ── Dispose non-geometry clones (e.g. __root__) ──
+					// Dispose non-geometry clones (__root__ etc.)
 					for (const m of loaded) {
 						if (!templateMeshes.includes(m as Mesh)) {
 							try { m.dispose() } catch { /* already gone */ }
 						}
 					}
 
-					// ── Apply material ──
 					stripAndApplyMaterial(templateMeshes, connectorMat)
 
-					// ── Build template container (same as Baseplates) ──
-					const template = new TransformNode('connector-template', scene)
-					for (const m of templateMeshes) {
-						m.rotationQuaternion = null
-						m.rotation.set(0, 0, 0)
-						m.position.setAll(0)
-						m.scaling.setAll(1)
-						m.parent = template
-					}
+					// ── Model matrix (≡ PartBuilder modelNode) ──
+					// Scale mm→m  +  GLTF right→left handedness rotation
+					const modelMatrix = Matrix.Compose(
+						new Vector3(GLB_SCALE, GLB_SCALE, GLB_SCALE),
+						Quaternion.FromEulerAngles(0, Math.PI, 0),
+						Vector3.Zero(),
+					)
 
-					template.rotationQuaternion = null
-					template.rotation.set(0, 0, 0)
-					template.scaling.setAll(0.001) // mm → m
-
-					// ── Compute center offset (same as Baseplates) ──
-					// Compensates for non-symmetric GLB model origin
-					template.computeWorldMatrix(true)
-					const scaledBounds = measureWorldBounds(templateMeshes, 'connector-scaled')
-					const centerOffsetX = (scaledBounds.min.x + scaledBounds.max.x) / 2
-					const centerOffsetZ = (scaledBounds.min.z + scaledBounds.max.z) / 2
-
-					// ── Position calculations ──
+					// ── Position parameters ──
 					const halfWidth = specs.halfWidth
 					const baseplateTop = specs.baseplate?.height ?? 0
-					const yPos = baseplateTop + specs.eaveHeight + Y_OFFSET
+					const yPos = baseplateTop + specs.eaveHeight + Y_ABOVE_EAVE
 
 					const totalLength = numBays * specs.bayDistance
 					const halfLength = totalLength / 2
 					const numLines = numBays + 1
 
-					// ── ALL transforms in one array (same as Baseplates) ──
-					const transforms: InstanceTransform[] = []
+					// ── Build thin-instance matrices ──
+					// Each matrix = modelMatrix × partMatrix, exactly mirroring the
+					// PartBuilder's modelNode → partNode hierarchy.
+					const matrices: Matrix[] = []
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
 
-						// Right side
-						transforms.push({
-							position: new Vector3(
-								-(halfWidth - X_OFFSET) - centerOffsetX,
-								yPos,
-								z - centerOffsetZ,
-							),
-							rotation: new Vector3(0, Math.PI, 0),
-							scaling: template.scaling.clone(),
-						})
+						// Right side: pitch 180° + roll 5°
+						const rightPart = Matrix.Compose(
+							Vector3.One(),
+							Quaternion.FromEulerAngles(Math.PI, 0, ROLL_ANGLE),
+							new Vector3(-(halfWidth - X_INSET), yPos, z),
+						)
+						matrices.push(modelMatrix.multiply(rightPart))
 
-						// Left side (mirrored)
-						transforms.push({
-							position: new Vector3(
-								(halfWidth - X_OFFSET) - centerOffsetX,
-								yPos,
-								z - centerOffsetZ,
-							),
-							rotation: new Vector3(0, 0, 0),
-							scaling: template.scaling.clone(),
-						})
+						// Left side: pitch 180°, Y mirror 180°, roll −5°
+						const leftPart = Matrix.Compose(
+							Vector3.One(),
+							Quaternion.FromEulerAngles(Math.PI, Math.PI, -ROLL_ANGLE),
+							new Vector3(+(halfWidth - X_INSET), yPos, z),
+						)
+						matrices.push(modelMatrix.multiply(leftPart))
 					}
 
-					// ── Apply thin instances to each mesh (same as Baseplates) ──
+					// ── Write thin-instance buffer ──
+					const matrixData = new Float32Array(matrices.length * 16)
+					for (let j = 0; j < matrices.length; j++) {
+						matrices[j].copyToArray(matrixData, j * 16)
+					}
+
 					for (const src of templateMeshes) {
 						src.parent = root
 						src.position.setAll(0)
@@ -184,12 +156,13 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						src.rotation.setAll(0)
 						src.scaling.setAll(1)
 						src.setEnabled(true)
-						createFrozenThinInstances(src, transforms)
+						src.thinInstanceSetBuffer('matrix', matrixData, 16)
+						src.thinInstanceRefreshBoundingInfo(false)
+						src.alwaysSelectAsActiveMesh = true
+						src.freezeWorldMatrix()
+						src.freezeNormals()
 						allDisposables.push(src)
 					}
-
-					// Dispose template container
-					template.dispose()
 
 					onLoadStateChange?.(false)
 				})
@@ -205,7 +178,6 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 				for (const d of allDisposables) {
 					try { d.dispose() } catch { /* already gone */ }
 				}
-				// Dispose cloned material to prevent leak on re-runs
 				try { connectorMat.dispose() } catch { /* already gone */ }
 			}
 		}, [scene, enabled, specs, numBays, onLoadStateChange])
