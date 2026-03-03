@@ -12,6 +12,8 @@
  * hooks/usePartLoader.ts    — GLB loading + auto-scale + bounding box
  * hooks/usePartStorage.ts   — localStorage save/load
  *
+ * codeExport.ts             — Rich code/JSON export with placement guide
+ *
  * panels/MovePanel.tsx      — XYZ position controls
  * panels/RotatePanel.tsx    — XYZ rotation controls
  * panels/MirrorPanel.tsx    — Mirror axis toggles + presets
@@ -32,7 +34,8 @@ import { useScene } from '@/engine/BabylonProvider'
 import type { TentSpecs } from '@/types'
 import type { MirrorFlags, PanelTab, TransformValues, SavedConfig, AxisScale } from './types'
 import { EMPTY_MIRRORS, DEFAULT_SCALE, MIN_SCALE, MAX_SCALE, clampAxisScale } from './types'
-import { roundTo4, radToDeg, safeDispose, safeDisposeArray, analyzePosition, describeMirrors, buildSpecsFormula } from './utils'
+import { safeDispose, safeDisposeArray } from './utils'
+import { generateRichCode, generateRichJSON, type CodeExportContext } from './codeExport'
 import { GLB_PARTS, MIRROR_CONFIGS } from './catalogue'
 import type { AlignSpecs } from './hooks/usePartTransform'
 
@@ -478,199 +481,44 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   const handleCopy = useCallback(
     async (asCode: boolean) => {
       const v = partTransformHook.readTransform()
-      const sc = partLoader.axisScale
       const glb = GLB_PARTS[selectedPart]
-      const pos = new Vector3(v.px, v.py, v.pz)
-      const rot = new Vector3(v.rx, v.ry, v.rz)
 
-      // Semantic analysis of the current placement
-      const ctx = analyzePosition(v, specs, numBays, baseplateTop, lineZs)
-      const formulas = buildSpecsFormula(v, specs, numBays, baseplateTop, lineZs)
-      const mirrorDesc = describeMirrors(mirrors)
-
-      let text: string
-      if (asCode) {
-        let code = ''
-        code += `// ═══════════════════════════════════════════════════════════════\n`
-        code += `// Part:  ${glb.label}\n`
-        code += `// GLB:   ${glb.folder}${glb.file}\n`
-        code += `// ═══════════════════════════════════════════════════════════════\n`
-        code += `//\n`
-        code += `// PLACEMENT GUIDE:\n`
-        code += `//   Side:        ${ctx.side}\n`
-        code += `//   Level:       ${ctx.level}\n`
-        code += `//   Frame line:  ${ctx.frameLine}\n`
-        code += `//   Orientation: ${ctx.orientation}\n`
-        code += `//   Mirrors:     ${mirrorDesc}\n`
-        code += `//   Dimensions:  ${partLoader.dimensions.w.toFixed(3)} x ${partLoader.dimensions.h.toFixed(3)} x ${partLoader.dimensions.d.toFixed(3)} m (W x H x D)\n`
-        code += `//\n`
-        code += `// NODE HIERARCHY (two-node setup):\n`
-        code += `//   root (TransformNode, parented to tent root or builder-root)\n`
-        code += `//     └─ partNode (TransformNode) — holds position & rotation\n`
-        code += `//          └─ modelNode (TransformNode) — holds scale & GLTF root transform\n`
-        code += `//               └─ mesh(es) — actual GLB geometry\n`
-        code += `//\n`
-        code += `//   Why two nodes?\n`
-        code += `//     partNode  = WHERE the part goes (position + rotation in world space)\n`
-        code += `//     modelNode = HOW the part looks (scale + GLTF coordinate conversion)\n`
-        code += `//     Keeping them separate means scaling never affects position offsets.\n`
-        code += `//\n`
-        code += `// SPECS-RELATIVE FORMULAS (use these in component code):\n`
-        code += `//   X: ${formulas.xFormula}\n`
-        code += `//   Y: ${formulas.yFormula}\n`
-        code += `//   Z: ${formulas.zFormula}\n`
-        code += `//\n`
-        code += `// TENT CONTEXT:\n`
-        code += `//   specs.halfWidth   = ${specs.halfWidth}m\n`
-        code += `//   specs.eaveHeight  = ${specs.eaveHeight}m\n`
-        code += `//   specs.ridgeHeight = ${specs.ridgeHeight}m\n`
-        code += `//   specs.bayDistance  = ${specs.bayDistance}m\n`
-        code += `//   baseplateTop      = ${baseplateTop}m  (specs.baseplate.height)\n`
-        code += `//   numBays           = ${numBays}\n`
-        code += `//   halfLength        = ${halfLength}m  (numBays * specs.bayDistance / 2)\n`
-        code += `//   frameLines [Z]:   [${lineZs.map(z => z.toFixed(3)).join(', ')}]\n`
-        code += `// ═══════════════════════════════════════════════════════════════\n\n`
-
-        // ── Parametric version (specs-relative, adapts to any tent size) ──
-        code += `// ── Parametric code (adapts to tent size) ─────────────────────\n`
-        code += `const partNode = new TransformNode('${glb.label.toLowerCase().replace(/\\s+/g, '-')}', scene)\n`
-        code += `partNode.parent = root  // parent to tent root TransformNode\n`
-        code += `const modelNode = new TransformNode('${glb.label.toLowerCase().replace(/\\s+/g, '-')}-model', scene)\n`
-        code += `modelNode.parent = partNode\n`
-        code += `const meshes = await loadGLB(scene, '${glb.folder}', '${glb.file}')\n`
-        code += `// Parent meshes to modelNode after stripping materials\n\n`
-
-        if (sc.x !== 1 || sc.y !== 1 || sc.z !== 1) {
-          code += `modelNode.scaling.set(${sc.x}, ${sc.y}, ${sc.z})  // scale on modelNode, not partNode\n\n`
-        }
-
-        code += `// Position & rotation on partNode (world placement)\n`
-        code += `partNode.position.set(${formulas.xFormula}, ${formulas.yFormula}, ${formulas.zFormula})\n`
-        code += `//   → resolves to (${v.px}, ${v.py}, ${v.pz})\n`
-
-        const rxDeg = radToDeg(v.rx)
-        const ryDeg = radToDeg(v.ry)
-        const rzDeg = radToDeg(v.rz)
-        if (Math.abs(rxDeg) < 0.5 && Math.abs(ryDeg) < 0.5 && Math.abs(rzDeg) < 0.5) {
-          code += `// No rotation needed (default orientation)\n`
+      // Read modelNode rotation (from GLTF __root__)
+      const mn = partLoader.modelNodeRef.current
+      let modelRotation = { x: 0, y: Math.PI, z: 0 } // default GLTF handedness
+      let modelUsedQuaternion = false
+      if (mn) {
+        if (mn.rotationQuaternion) {
+          const euler = mn.rotationQuaternion.toEulerAngles()
+          modelRotation = { x: euler.x, y: euler.y, z: euler.z }
+          modelUsedQuaternion = true
         } else {
-          code += `partNode.rotation.set(${v.rx}, ${v.ry}, ${v.rz})  // ${ctx.orientation}\n`
+          modelRotation = { x: mn.rotation.x, y: mn.rotation.y, z: mn.rotation.z }
         }
-
-        // ── Mirror placements (parametric) ──
-        for (const cfg of MIRROR_CONFIGS) {
-          if (!mirrors[cfg.axis]) continue
-          const mp = cfg.posFn(pos)
-          const mr = cfg.rotFn(rot)
-          const mirrorV: TransformValues = { ...v, px: roundTo4(mp.x), py: roundTo4(mp.y), pz: roundTo4(mp.z), rx: roundTo4(mr.x), ry: roundTo4(mr.y), rz: roundTo4(mr.z) }
-          const mirrorCtx = analyzePosition(mirrorV, specs, numBays, baseplateTop, lineZs)
-          const mirrorFormulas = buildSpecsFormula(mirrorV, specs, numBays, baseplateTop, lineZs)
-
-          code += `\n// Mirror ${cfg.axis.toUpperCase()} — ${cfg.desc} — ${mirrorCtx.side}, ${mirrorCtx.frameLine}\n`
-          code += `mirror${cfg.axis.toUpperCase()}.position.set(${mirrorFormulas.xFormula}, ${mirrorFormulas.yFormula}, ${mirrorFormulas.zFormula})\n`
-          code += `//   → resolves to (${roundTo4(mp.x)}, ${roundTo4(mp.y)}, ${roundTo4(mp.z)})\n`
-          code += `mirror${cfg.axis.toUpperCase()}.rotation.set(${roundTo4(mr.x)}, ${roundTo4(mr.y)}, ${roundTo4(mr.z)})  // ${mirrorCtx.orientation}\n`
-        }
-
-        // ── Raw values reference (for quick testing / hardcoded prototypes) ──
-        code += `\n// ── Raw values (for quick testing, not recommended for production) ──\n`
-        code += `// partNode.position.set(${v.px}, ${v.py}, ${v.pz})\n`
-        code += `// partNode.rotation.set(${v.rx}, ${v.ry}, ${v.rz})  // (${rxDeg}deg, ${ryDeg}deg, ${rzDeg}deg)\n`
-        for (const cfg of MIRROR_CONFIGS) {
-          if (!mirrors[cfg.axis]) continue
-          const mp = cfg.posFn(pos)
-          const mr = cfg.rotFn(rot)
-          code += `// mirror${cfg.axis.toUpperCase()}.position.set(${roundTo4(mp.x)}, ${roundTo4(mp.y)}, ${roundTo4(mp.z)})\n`
-          code += `// mirror${cfg.axis.toUpperCase()}.rotation.set(${roundTo4(mr.x)}, ${roundTo4(mr.y)}, ${roundTo4(mr.z)})\n`
-        }
-
-        text = code
-      } else {
-        // ── JSON output ──────────────────────────────────────────────────
-        const originalCtx = {
-          side: ctx.side,
-          level: ctx.level,
-          frameLine: ctx.frameLine,
-          orientation: ctx.orientation,
-        }
-        const originalFormulas = {
-          x: formulas.xFormula,
-          y: formulas.yFormula,
-          z: formulas.zFormula,
-        }
-        const placements: Record<string, unknown> = {
-          original: {
-            description: originalCtx,
-            formulas: originalFormulas,
-            position: { x: v.px, y: v.py, z: v.pz },
-            rotation_rad: { x: v.rx, y: v.ry, z: v.rz },
-            rotation_deg: { x: radToDeg(v.rx), y: radToDeg(v.ry), z: radToDeg(v.rz) },
-          },
-        }
-        for (const cfg of MIRROR_CONFIGS) {
-          if (!mirrors[cfg.axis]) continue
-          const mp = cfg.posFn(pos)
-          const mr = cfg.rotFn(rot)
-          const mv: TransformValues = { ...v, px: roundTo4(mp.x), py: roundTo4(mp.y), pz: roundTo4(mp.z), rx: roundTo4(mr.x), ry: roundTo4(mr.y), rz: roundTo4(mr.z) }
-          const mirrorCtx = analyzePosition(mv, specs, numBays, baseplateTop, lineZs)
-          const mirrorFormulas = buildSpecsFormula(mv, specs, numBays, baseplateTop, lineZs)
-          placements[`mirror_${cfg.axis}`] = {
-            description: {
-              side: mirrorCtx.side,
-              level: mirrorCtx.level,
-              frameLine: mirrorCtx.frameLine,
-              orientation: mirrorCtx.orientation,
-              mirrorType: cfg.desc,
-            },
-            formulas: {
-              x: mirrorFormulas.xFormula,
-              y: mirrorFormulas.yFormula,
-              z: mirrorFormulas.zFormula,
-            },
-            position: { x: roundTo4(mp.x), y: roundTo4(mp.y), z: roundTo4(mp.z) },
-            rotation_rad: { x: roundTo4(mr.x), y: roundTo4(mr.y), z: roundTo4(mr.z) },
-            rotation_deg: { x: radToDeg(mr.x), y: radToDeg(mr.y), z: radToDeg(mr.z) },
-          }
-        }
-        text = JSON.stringify(
-          {
-            part: glb.label,
-            glb: `${glb.folder}${glb.file}`,
-            scale: {
-              values: sc,
-              note: 'Scale is applied to modelNode (child of partNode), not to partNode itself.',
-            },
-            dimensions: partLoader.dimensions,
-            node_hierarchy: {
-              structure: 'root > partNode (position + rotation) > modelNode (scale + GLTF transform) > mesh(es)',
-              partNode: 'Holds world placement: position and rotation. Parent this to your tent root TransformNode.',
-              modelNode: 'Holds scale and GLTF coordinate conversion. Meshes are children of this node.',
-              why: 'Separating position from scale prevents scaling from affecting position offsets.',
-            },
-            mirrors: {
-              flags: mirrors,
-              description: mirrorDesc,
-            },
-            tent_context: {
-              tent_name: specs.name,
-              halfWidth: specs.halfWidth,
-              eaveHeight: specs.eaveHeight,
-              ridgeHeight: specs.ridgeHeight,
-              bayDistance: specs.bayDistance,
-              baseplateTop,
-              baseplateTop_formula: 'specs.baseplate.height',
-              numBays,
-              halfLength,
-              halfLength_formula: 'numBays * specs.bayDistance / 2',
-              frameLineZs: lineZs,
-              frameLineZs_formula: 'Array.from({length: numBays+1}, (_, i) => i * specs.bayDistance - halfLength)',
-            },
-            placements,
-          },
-          null,
-          2
-        )
       }
+
+      const ctx: CodeExportContext = {
+        glb,
+        transform: v,
+        axisScale: partLoader.axisScale,
+        modelRotation,
+        modelUsedQuaternion,
+        mirrors,
+        dimensions: partLoader.dimensions,
+        specs: {
+          name: specs.name,
+          halfWidth: specs.halfWidth,
+          eaveHeight: specs.eaveHeight,
+          ridgeHeight: specs.ridgeHeight,
+          bayDistance: specs.bayDistance,
+        },
+        numBays,
+        lineZs,
+        baseplateTop,
+        halfLength,
+      }
+
+      const text = asCode ? generateRichCode(ctx) : generateRichJSON(ctx)
 
       try {
         await navigator.clipboard.writeText(text)

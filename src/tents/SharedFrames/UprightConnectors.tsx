@@ -16,37 +16,38 @@ const SHARED_FRAME_PATH = '/tents/SharedFrames/'
 const CONNECTOR_GLB = 'upright-connector-r.glb'
 
 /**
- * Connector placement measured via PartBuilder on the 15 m tent.
+ * Connector placement from PartBuilder (15 m tent, 3 bays).
  *
- * X_INSET:      distance inward from the eave line toward centre (m).
- * Y_ABOVE_EAVE: distance above the eave datum (baseplateTop + eaveHeight) (m).
- * ROLL_ANGLE:   tilt to match arch slope at eave (radians, 5°).
- *
- * Resolved right-side position for 15 m / 3-bay, frame line 0:
- *   X = -(7.5 − 0.47) = −7.03
- *   Y =  0.30 + 3.20 + 0.18 = 3.68
- *   Z = −7.5
+ * Right-side position (frame line 0):
+ *   X = -(halfWidth − 0.47) = −7.03   (0.47 m inward from eave line)
+ *   Y = baseplateTop + eaveHeight + 0.18 = 3.68
+ *   Z = lineZs[0] = −7.5
  *   Rotation: pitch 180° (flipped), roll 5°
+ *
+ * Left-side (X-mirror of right):
+ *   X = +7.03, rotation: pitch 180°, yaw 180°, roll −5°
  */
 const X_INSET = 0.47
 const Y_ABOVE_EAVE = 0.18
 const ROLL_ANGLE = 5 * Math.PI / 180
 
-/** mm → m  (GLB is authored in millimetres). */
-const GLB_SCALE = 0.001
+/** mm → m  (PartBuilder-measured scale for this GLB). */
+const MODEL_SCALE = 0.001
 
 /**
- * UprightConnectors — loads the connector-plate GLB and places thin
- * instances at the top of each upright on both sides of the tent.
+ * UprightConnectors — loads the connector GLB and places thin instances
+ * at the top of every upright on both sides.
  *
- * Mirrors the PartBuilder two-node hierarchy baked into a single matrix:
+ * Matrix chain mirrors the PartBuilder's two-node hierarchy:
  *
- *   modelMatrix  = Scale(0.001) × Rotate(GLTF Y=π)         ← "modelNode"
- *   partMatrix   = Rotate(placement) × Translate(position)  ← "partNode"
- *   thinInstance  = modelMatrix × partMatrix
+ *   thinMatrix = meshLocal × modelMatrix × partMatrix
  *
- * No bounds-based offset is applied — the PartBuilder positions already
- * account for the model's origin.
+ *   meshLocal:   preserves sub-mesh offsets from the GLB
+ *   modelMatrix: GLTF __root__ rotation (read from GLB) + scale
+ *   partMatrix:  world placement (position + rotation)
+ *
+ * IMPORTANT: The __root__ rotation is READ from the loaded GLB,
+ * not hardcoded, to handle any GLTF export variation.
  */
 export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 	({ numBays, specs, enabled = true, onLoadStateChange }) => {
@@ -63,7 +64,6 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 			const root = new TransformNode('upright-connectors-root', scene)
 			const allDisposables: (Mesh | TransformNode)[] = [root]
 
-			// Clone material — backFaceCulling=false for GLTF handedness rotation
 			const connectorMat = getAluminumMaterial(scene).clone('aluminum-connectors')
 			connectorMat.backFaceCulling = false
 
@@ -72,90 +72,133 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 			loadGLB(scene, SHARED_FRAME_PATH, CONNECTOR_GLB, ctrl.signal)
 				.then((loaded) => {
 					if (ctrl.signal.aborted) {
-						for (const m of loaded) {
-							try { m.dispose() } catch { /* already gone */ }
-						}
+						for (const m of loaded) { try { m.dispose() } catch { /* gone */ } }
 						onLoadStateChange?.(false)
 						return
 					}
 
-					// ── Filter geometry meshes ──
+					// ── 1. Separate __root__ from geometry meshes ────────────
+					const rootMesh = loaded.find((m) => m.name === '__root__')
 					const templateMeshes = loaded.filter(
 						(m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0,
 					)
 
 					if (templateMeshes.length === 0) {
-						console.warn('[UprightConnectors] No geometry meshes found in GLB')
-						for (const m of loaded) {
-							try { m.dispose() } catch { /* already gone */ }
-						}
+						console.warn('[UprightConnectors] No geometry meshes in GLB')
+						for (const m of loaded) { try { m.dispose() } catch { /* gone */ } }
 						onLoadStateChange?.(false)
 						return
 					}
 
-					// Dispose non-geometry clones (__root__ etc.)
+					// ── 2. Read __root__ transform BEFORE disposing it ───────
+					// The PartBuilder copies this to modelNode — we must match it.
+					let gltfRotation: Quaternion
+					if (rootMesh?.rotationQuaternion) {
+						gltfRotation = rootMesh.rotationQuaternion.clone()
+					} else if (rootMesh) {
+						gltfRotation = Quaternion.FromEulerAngles(
+							rootMesh.rotation.x,
+							rootMesh.rotation.y,
+							rootMesh.rotation.z,
+						)
+					} else {
+						// Fallback: standard GLTF right→left handedness
+						gltfRotation = Quaternion.FromEulerAngles(0, Math.PI, 0)
+						console.warn('[UprightConnectors] No __root__ found — using Y=PI fallback')
+					}
+
+					console.log(
+						'[UprightConnectors] GLTF __root__ rotation (euler):',
+						gltfRotation.toEulerAngles().toString(),
+						'quat:', gltfRotation.toString(),
+					)
+
+					// ── 3. Capture each mesh's LOCAL transform before zeroing ─
+					// The PartBuilder preserves these (only converts quat→euler).
+					// Zeroing them without accounting for them shifts geometry.
+					const meshLocalMatrices = new Map<Mesh, Matrix>()
+					for (const mesh of templateMeshes) {
+						const rot = mesh.rotationQuaternion?.clone()
+							?? Quaternion.FromEulerAngles(
+								mesh.rotation.x,
+								mesh.rotation.y,
+								mesh.rotation.z,
+							)
+						const localMat = Matrix.Compose(
+							mesh.scaling.clone(),
+							rot,
+							mesh.position.clone(),
+						)
+						meshLocalMatrices.set(mesh, localMat)
+					}
+
+					// ── 4. Dispose non-geometry nodes (__root__ etc.) ─────────
 					for (const m of loaded) {
 						if (!templateMeshes.includes(m as Mesh)) {
-							try { m.dispose() } catch { /* already gone */ }
+							try { m.dispose() } catch { /* gone */ }
 						}
 					}
 
 					stripAndApplyMaterial(templateMeshes, connectorMat)
 
-					// ── Model matrix (≡ PartBuilder modelNode) ──
-					// Scale mm→m  +  GLTF right→left handedness rotation
+					// ── 5. Build model matrix (≡ PartBuilder modelNode) ───────
+					// Combines GLTF coordinate conversion + mm→m scale.
 					const modelMatrix = Matrix.Compose(
-						new Vector3(GLB_SCALE, GLB_SCALE, GLB_SCALE),
-						Quaternion.FromEulerAngles(0, Math.PI, 0),
+						new Vector3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE),
+						gltfRotation,
 						Vector3.Zero(),
 					)
 
-					// ── Position parameters ──
+					// ── 6. Placement parameters ──────────────────────────────
 					const halfWidth = specs.halfWidth
 					const baseplateTop = specs.baseplate?.height ?? 0
 					const yPos = baseplateTop + specs.eaveHeight + Y_ABOVE_EAVE
-
 					const totalLength = numBays * specs.bayDistance
 					const halfLength = totalLength / 2
 					const numLines = numBays + 1
 
-					// ── Build thin-instance matrices ──
-					// Each matrix = modelMatrix × partMatrix, exactly mirroring the
-					// PartBuilder's modelNode → partNode hierarchy.
-					const matrices: Matrix[] = []
+					// ── 7. Build placement (part) matrices ────────────────────
+					const partMatrices: Matrix[] = []
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
 
-						// Right side: pitch 180° + roll 5°
-						const rightPart = Matrix.Compose(
+						// Right side: pitch=180°, roll=+5°
+						partMatrices.push(Matrix.Compose(
 							Vector3.One(),
 							Quaternion.FromEulerAngles(Math.PI, 0, ROLL_ANGLE),
 							new Vector3(-(halfWidth - X_INSET), yPos, z),
-						)
-						matrices.push(modelMatrix.multiply(rightPart))
+						))
 
-						// Left side: pitch 180°, Y mirror 180°, roll −5°
-						const leftPart = Matrix.Compose(
+						// Left side (X-mirror): pitch=180°, yaw=180°, roll=−5°
+						partMatrices.push(Matrix.Compose(
 							Vector3.One(),
 							Quaternion.FromEulerAngles(Math.PI, Math.PI, -ROLL_ANGLE),
 							new Vector3(+(halfWidth - X_INSET), yPos, z),
-						)
-						matrices.push(modelMatrix.multiply(leftPart))
+						))
 					}
 
-					// ── Write thin-instance buffer ──
-					const matrixData = new Float32Array(matrices.length * 16)
-					for (let j = 0; j < matrices.length; j++) {
-						matrices[j].copyToArray(matrixData, j * 16)
-					}
-
+					// ── 8. Per-mesh thin instance buffers ─────────────────────
+					// Each mesh may have different local offsets in the GLB, so:
+					//   thinMatrix = meshLocal × modelMatrix × partMatrix
 					for (const src of templateMeshes) {
+						const meshLocal = meshLocalMatrices.get(src) ?? Matrix.Identity()
+
+						// Combine mesh-local + model into a reusable prefix
+						const meshModelPrefix = meshLocal.multiply(modelMatrix)
+
+						const matrixData = new Float32Array(partMatrices.length * 16)
+						for (let j = 0; j < partMatrices.length; j++) {
+							meshModelPrefix.multiply(partMatrices[j]).copyToArray(matrixData, j * 16)
+						}
+
+						// Zero mesh transform — thin instances supply world matrices
 						src.parent = root
 						src.position.setAll(0)
 						src.rotationQuaternion = null
 						src.rotation.setAll(0)
 						src.scaling.setAll(1)
 						src.setEnabled(true)
+
 						src.thinInstanceSetBuffer('matrix', matrixData, 16)
 						src.thinInstanceRefreshBoundingInfo(false)
 						src.alwaysSelectAsActiveMesh = true
@@ -176,9 +219,9 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 			return () => {
 				ctrl.abort()
 				for (const d of allDisposables) {
-					try { d.dispose() } catch { /* already gone */ }
+					try { d.dispose() } catch { /* gone */ }
 				}
-				try { connectorMat.dispose() } catch { /* already gone */ }
+				try { connectorMat.dispose() } catch { /* gone */ }
 			}
 		}, [scene, enabled, specs, numBays, onLoadStateChange])
 
