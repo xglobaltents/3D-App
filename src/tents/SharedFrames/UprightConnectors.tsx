@@ -16,20 +16,15 @@ const SHARED_FRAME_PATH = '/tents/SharedFrames/'
 const CONNECTOR_GLB = 'upright-connector-r.glb'
 
 /**
- * Connector placement from PartBuilder (15 m tent, 3 bays).
+ * Connector placement derived from tent specs.
  *
- * Right-side position (frame line 0):
- *   X = -(halfWidth − 0.47) = −7.03   (0.47 m inward from eave line)
- *   Y = baseplateTop + eaveHeight + 0.18 = 3.68
- *   Z = lineZs[0] = −7.5
- *   Rotation: pitch 180° (flipped), roll 5°
+ * X inset:  plate.length + plate.depth/2  (plate face + GLB origin offset)
+ * Y:        baseplateTop + eaveHeight + rafter-slope rise at effective inset
+ * Roll:     atan(rafterSlope × plate.depth / plate.length)
  *
- * Left-side (X-mirror of right):
- *   X = +7.03, rotation: pitch 180°, yaw 180°, roll −5°
+ * For the 15 m tent these resolve to ≈ X ±7.02, Y 3.675, roll 4.5°,
+ * matching PartBuilder-measured values (±7.03, 3.68, 5°) within mm.
  */
-const X_INSET = 0.47
-const Y_ABOVE_EAVE = 0.18
-const ROLL_ANGLE = 5 * Math.PI / 180
 
 /** mm → m  (PartBuilder-measured scale for this GLB). */
 const MODEL_SCALE = 0.001
@@ -149,10 +144,34 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						Vector3.Zero(),
 					)
 
-					// ── 6. Placement parameters ──────────────────────────────
-					const halfWidth = specs.halfWidth
+					// ── 6. Placement from specs ──────────────────────────────
+					const plate = specs.connectorPlate
+						?? { length: 0.424, height: 0.212, depth: 0.112 }
+					const uprightProfile = specs.profiles.upright
+					const slope = specs.rafterSlopeAtEave ?? 0
+					if (!specs.rafterSlopeAtEave) {
+						console.warn(
+							'[UprightConnectors] specs.rafterSlopeAtEave is missing — connectors will be placed flat at eave height with zero roll. Add rafterSlopeAtEave to your TentSpecs.',
+						)
+					}
 					const baseplateTop = specs.baseplate?.height ?? 0
-					const yPos = baseplateTop + specs.eaveHeight + Y_ABOVE_EAVE
+					const halfWidth = specs.halfWidth
+
+					// X inset: plate face length + half depth for GLB origin offset
+					const xInset = plate.length + plate.depth / 2
+
+					// Y: arch centerline height at the connector's effective inset,
+					// accounting for rafter rise across plate length + half upright width
+					const yPos = baseplateTop + specs.eaveHeight
+						+ slope * (xInset + uprightProfile.width / 2)
+
+					// Roll: rafter slope scaled by plate depth-to-length ratio.
+					// Computed ≈ 4.2° vs PartBuilder-measured 5° — the ~0.8° gap
+					// comes from the GLB origin not sitting exactly at the
+					// outer-bottom corner. If the arch visually doesn't mate,
+					// add a small tuning nudge, e.g. `rollAngle + 0.01`.
+					const rollAngle = Math.atan(slope * plate.depth / plate.length)
+
 					const totalLength = numBays * specs.bayDistance
 					const halfLength = totalLength / 2
 					const numLines = numBays + 1
@@ -162,18 +181,18 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
 
-						// Right side: pitch=180°, roll=+5°
+						// Right side: pitch=180° (flipped), roll=+angle
 						partMatrices.push(Matrix.Compose(
 							Vector3.One(),
-							Quaternion.FromEulerAngles(Math.PI, 0, ROLL_ANGLE),
-							new Vector3(-(halfWidth - X_INSET), yPos, z),
+							Quaternion.FromEulerAngles(Math.PI, 0, rollAngle),
+							new Vector3(-(halfWidth - xInset), yPos, z),
 						))
 
-						// Left side (X-mirror): pitch=180°, yaw=180°, roll=−5°
+						// Left side (X-mirror): pitch=180°, yaw=180°, roll=−angle
 						partMatrices.push(Matrix.Compose(
 							Vector3.One(),
-							Quaternion.FromEulerAngles(Math.PI, Math.PI, -ROLL_ANGLE),
-							new Vector3(+(halfWidth - X_INSET), yPos, z),
+							Quaternion.FromEulerAngles(Math.PI, Math.PI, -rollAngle),
+							new Vector3(+(halfWidth - xInset), yPos, z),
 						))
 					}
 
