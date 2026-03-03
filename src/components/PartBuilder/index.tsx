@@ -36,7 +36,7 @@ import type { MirrorFlags, PanelTab, TransformValues, SavedConfig, AxisScale } f
 import { EMPTY_MIRRORS, DEFAULT_SCALE, MIN_SCALE, MAX_SCALE, clampAxisScale } from './types'
 import { safeDispose, safeDisposeArray } from './utils'
 import { generateRichCode, generateRichJSON, type CodeExportContext } from './codeExport'
-import { GLB_PARTS, MIRROR_CONFIGS } from './catalogue'
+import { GLB_PARTS } from './catalogue'
 import type { AlignSpecs } from './hooks/usePartTransform'
 
 import { useUndoRedo } from './hooks/useUndoRedo'
@@ -56,6 +56,33 @@ import { SavedPanel } from './panels/SavedPanel'
 import styles from './PartBuilder.module.css'
 
 /* ═══════════════════════════════════════════════════════════════════════════ */
+
+/* ─── Logarithmic slider helpers ──────────────────────────────────────────── */
+const LOG_MIN = Math.log10(MIN_SCALE) // -4
+const LOG_MAX = Math.log10(MAX_SCALE) // ~0.699
+const LOG_STEP = 0.005 // fine-grained in log space
+
+/** Convert log-space slider value → real scale */
+function logToScale(logVal: number): number {
+  const raw = Math.pow(10, logVal)
+  // Round to 4 significant digits to avoid floating-point noise
+  const digits = Math.max(0, 4 - Math.ceil(Math.log10(Math.abs(raw) + 1e-15)))
+  return parseFloat(raw.toFixed(digits))
+}
+
+/** Convert real scale → log-space slider value */
+function scaleToLog(scale: number): number {
+  return Math.log10(Math.max(MIN_SCALE, scale))
+}
+
+/** Dynamic step for number input based on the current value's order of magnitude */
+function dynamicStep(val: number): number {
+  if (val < 0.001) return 0.0001
+  if (val < 0.01) return 0.001
+  if (val < 0.1) return 0.005
+  if (val < 1) return 0.01
+  return 0.05
+}
 
 interface Props {
   specs: TentSpecs
@@ -629,18 +656,18 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
           <span className={styles.miniLabel} style={{ width: 14, textAlign: 'center', textTransform: 'uppercase' }}>{axis}</span>
           <input
             type="range"
-            min={0.001}
-            max={5}
-            step={0.001}
+            min={LOG_MIN}
+            max={LOG_MAX}
+            step={LOG_STEP}
             className={styles.slider}
-            value={partLoader.axisScale[axis]}
-            onChange={(e) => handleAxisScaleChange(axis, +e.target.value)}
+            value={scaleToLog(partLoader.axisScale[axis])}
+            onChange={(e) => handleAxisScaleChange(axis, logToScale(+e.target.value))}
           />
           <input
             type="number"
             min={MIN_SCALE}
             max={MAX_SCALE}
-            step={0.01}
+            step={dynamicStep(partLoader.axisScale[axis])}
             className={styles.numberInput}
             style={{ width: 56 }}
             value={partLoader.axisScale[axis]}

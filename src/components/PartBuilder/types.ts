@@ -54,7 +54,7 @@ export interface AxisScale {
 }
 
 export const DEFAULT_SCALE: AxisScale = { x: 1, y: 1, z: 1 }
-export const MIN_SCALE = 0.001
+export const MIN_SCALE = 0.0001
 export const MAX_SCALE = 5
 
 /** Clamp a single scale value to the allowed range */
