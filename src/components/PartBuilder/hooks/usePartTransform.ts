@@ -32,6 +32,7 @@ export interface UsePartTransformReturn {
   setField: (field: keyof TransformValues, val: number) => void
   align: (preset: string, specs: AlignSpecs) => void
   reset: (specs: AlignSpecs, firstLineZ: number) => void
+  resetToPosition: (x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => void
   quickSnap: (x: number, y: number, z: number) => void
   snapToLine: (lineZ: number, side: 'right' | 'left', specs: AlignSpecs) => void
 }
@@ -200,6 +201,19 @@ export function usePartTransform(
     [pushUndo, syncFromNode]
   )
 
+  const resetToPosition = useCallback(
+    (x: number, y: number, z: number, rx?: number, ry?: number, rz?: number) => {
+      pushUndo()
+      const n = partNodeRef.current
+      if (!n) return
+      n.position.set(x, y, z)
+      n.rotation.set(rx ?? 0, ry ?? 0, rz ?? 0)
+      n.scaling.set(1, 1, 1)
+      syncFromNode()
+    },
+    [pushUndo, syncFromNode]
+  )
+
   const quickSnap = useCallback(
     (x: number, y: number, z: number) => {
       pushUndo()
@@ -246,6 +260,7 @@ export function usePartTransform(
     setField,
     align,
     reset,
+    resetToPosition,
     quickSnap,
     snapToLine,
   }

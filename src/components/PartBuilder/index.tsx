@@ -200,12 +200,22 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
         }
         partTransformHook.syncFromNode()
       } else {
-        // Default: position at default location
-        partNode.position.set(
-          -specs.halfWidth,
-          baseplateTop + specs.eaveHeight,
-          lineZs[0]
-        )
+        // Default: position at real frame location for this part
+        const glb = GLB_PARTS[selectedPart]
+        const defaultPos = glb.getDefaultPosition?.({
+          specs,
+          baseplateTop,
+          halfLength,
+          firstLineZ: lineZs[0],
+        })
+        if (defaultPos) {
+          partNode.position.set(defaultPos.x, defaultPos.y, defaultPos.z)
+          if (defaultPos.rx != null || defaultPos.ry != null || defaultPos.rz != null) {
+            partNode.rotation.set(defaultPos.rx ?? 0, defaultPos.ry ?? 0, defaultPos.rz ?? 0)
+          }
+        } else {
+          partNode.position.set(-specs.halfWidth, baseplateTop + specs.eaveHeight, lineZs[0])
+        }
 
         // Create mirrors
         if (scene) {
@@ -218,7 +228,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       }
     },
     // eslint-disable-next-line react-hooks/exhaustive-deps
-    [specs, baseplateTop, lineZs, scene, mirrors]
+    [specs, baseplateTop, lineZs, halfLength, scene, mirrors, selectedPart]
   )
 
   const onBeforeLoad = useCallback(() => {
@@ -803,7 +813,27 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       <div className={styles.row} style={{ marginTop: 4 }}>
         <button
           className={styles.resetBtn}
-          onClick={() => partTransformHook.reset(alignSpecs, lineZs[0])}
+          onClick={() => {
+            const glb = GLB_PARTS[selectedPart]
+            const defaultPos = glb.getDefaultPosition?.({
+              specs,
+              baseplateTop,
+              halfLength,
+              firstLineZ: lineZs[0],
+            })
+            if (defaultPos) {
+              partTransformHook.resetToPosition(
+                defaultPos.x,
+                defaultPos.y,
+                defaultPos.z,
+                defaultPos.rx,
+                defaultPos.ry,
+                defaultPos.rz,
+              )
+            } else {
+              partTransformHook.reset(alignSpecs, lineZs[0])
+            }
+          }}
         >
           Reset Position
         </button>
