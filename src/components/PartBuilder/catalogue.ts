@@ -26,6 +26,12 @@ export interface GLBOption {
   label: string
   folder: string
   file: string
+  /**
+   * Explicit uniform scale to apply to the loaded model.
+   * Use 0.001 for GLBs exported in millimeters (most CAD exports).
+   * If omitted, falls back to auto-scale based on bounding box.
+   */
+  defaultScale?: number
   /** Returns the real frame position for this part based on tent geometry */
   getDefaultPosition?: (ctx: DefaultPositionContext) => DefaultPosition
 }
@@ -35,6 +41,7 @@ export const GLB_PARTS: GLBOption[] = [
     label: 'Upright Connector R',
     folder: '/tents/SharedFrames/',
     file: 'upright-connector-r.glb',
+    defaultScale: 0.001,
     getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => {
       // Mirror UprightConnectors.tsx placement exactly (right-side, first frame line)
       const plate = specs.connectorPlate ?? { length: 0.424, height: 0.212, depth: 0.112 }
@@ -55,6 +62,7 @@ export const GLB_PARTS: GLBOption[] = [
     label: 'Connector Triangle',
     folder: '/tents/SharedFrames/',
     file: 'connector-triangle.glb',
+    defaultScale: 0.001,
     getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => ({
       // Triangle connector at eave junction
       x: -specs.halfWidth,
@@ -66,6 +74,7 @@ export const GLB_PARTS: GLBOption[] = [
     label: 'Eave Side Beam',
     folder: '/tents/SharedFrames/',
     file: 'eave-side-beam.glb',
+    defaultScale: 0.001,
     getDefaultPosition: ({ specs, baseplateTop }) => ({
       // Eave beam runs along the tent side at eave height, centered along Z
       x: specs.halfWidth,
@@ -77,6 +86,7 @@ export const GLB_PARTS: GLBOption[] = [
     label: 'Gable Support 77x127',
     folder: '/tents/SharedFrames/',
     file: 'gable-support-77x127.glb',
+    defaultScale: 0.001,
     getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => ({
       // Gable support at first gable position, standing on baseplate at front gable
       x: specs.gableSupportPositions[0] ?? -2.5,
@@ -88,6 +98,7 @@ export const GLB_PARTS: GLBOption[] = [
     label: 'Gable Beam 80x150',
     folder: '/tents/SharedFrames/',
     file: 'gable-beam-80x150.glb',
+    defaultScale: 0.001,
     getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => ({
       // Gable beam sits at eave height at the gable end, centered on X
       x: 0,
@@ -99,6 +110,7 @@ export const GLB_PARTS: GLBOption[] = [
     label: 'Baseplates',
     folder: '/tents/SharedFrames/',
     file: 'basePlates.glb',
+    defaultScale: 0.001,
     getDefaultPosition: ({ specs, firstLineZ }) => ({
       // Baseplate on the ground at the right-side first frame line
       x: specs.halfWidth,
@@ -110,6 +122,7 @@ export const GLB_PARTS: GLBOption[] = [
     label: 'Upright 15m',
     folder: '/tents/PremiumArchTent/15m/frame/',
     file: 'upright.glb',
+    defaultScale: 0.001,
     getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => ({
       // Upright stands on baseplate at the right-side first frame line
       x: specs.halfWidth,

@@ -155,7 +155,6 @@ export function usePartLoader(
           return
         }
 
-        const rootMesh = loaded.find((m) => m.name === '__root__')
         const meshes = loaded.filter(
           (m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0
         )
@@ -180,17 +179,6 @@ export function usePartLoader(
         modelNode.parent = partNode
         modelNodeRef.current = modelNode
 
-        // Copy root transform if present
-        if (rootMesh) {
-          if (rootMesh.rotationQuaternion) {
-            modelNode.rotationQuaternion = rootMesh.rotationQuaternion.clone()
-          } else {
-            modelNode.rotation.copyFrom(rootMesh.rotation)
-          }
-          modelNode.scaling.copyFrom(rootMesh.scaling)
-          modelNode.position.copyFrom(rootMesh.position)
-        }
-
         // Parent meshes to model node
         for (const mesh of meshes) {
           if (mesh.rotationQuaternion) {
@@ -204,36 +192,41 @@ export function usePartLoader(
           meshesRef.current.push(mesh)
         }
 
-        // Dispose unused nodes
+        // Dispose any non-geometry nodes returned by loadGLB
         for (const m of loaded) {
-          if (!meshes.includes(m as Mesh) && m !== rootMesh) safeDispose(m)
-        }
-        if (rootMesh) safeDispose(rootMesh)
-
-        // Auto-scale if too large
-        partNode.computeWorldMatrix(true)
-        for (const mesh of meshes) {
-          mesh.computeWorldMatrix(true)
-          mesh.refreshBoundingInfo()
+          if (!meshes.includes(m as Mesh)) safeDispose(m)
         }
 
-        let bbMin = new Vector3(Infinity, Infinity, Infinity)
-        let bbMax = new Vector3(-Infinity, -Infinity, -Infinity)
-        for (const mesh of meshes) {
-          mesh.getBoundingInfo().update(mesh.getWorldMatrix())
-          bbMin = Vector3.Minimize(bbMin, mesh.getBoundingInfo().boundingBox.minimumWorld)
-          bbMax = Vector3.Maximize(bbMax, mesh.getBoundingInfo().boundingBox.maximumWorld)
+        // Determine model scale:
+        // If the catalogue entry provides an explicit defaultScale (e.g. 0.001 for mm-exported GLBs)
+        // use it directly via proper assignment to trigger Babylon's dirty flag.
+        // Otherwise fall back to auto-detect from bounding box extents.
+        let resolvedScale: number
+        if (glb.defaultScale != null) {
+          resolvedScale = glb.defaultScale
+        } else {
+          // Compute local-space extents to determine auto-scale
+          let bbMin = new Vector3(Infinity, Infinity, Infinity)
+          let bbMax = new Vector3(-Infinity, -Infinity, -Infinity)
+          for (const mesh of meshes) {
+            mesh.refreshBoundingInfo()
+            const bi = mesh.getBoundingInfo()
+            bbMin = Vector3.Minimize(bbMin, bi.boundingBox.minimum)
+            bbMax = Vector3.Maximize(bbMax, bi.boundingBox.maximum)
+          }
+          const extent = bbMax.subtract(bbMin)
+          const maxExtent = Math.max(extent.x, extent.y, extent.z)
+          resolvedScale = maxExtent > 5 ? 1 / maxExtent : 1
         }
 
-        const extent = bbMax.subtract(bbMin)
-        const maxExtent = Math.max(extent.x, extent.y, extent.z)
-        if (maxExtent > 5) {
-          modelNode.scaling.scaleInPlace(1 / maxExtent)
-        }
+        // Use Vector3 constructor assignment — goes through Babylon's property setter
+        // and properly marks the node dirty so world matrix recomputes.
+        modelNode.scaling = new Vector3(resolvedScale, resolvedScale, resolvedScale)
+
         const s = {
-          x: roundTo4(modelNode.scaling.x),
-          y: roundTo4(modelNode.scaling.y),
-          z: roundTo4(modelNode.scaling.z),
+          x: roundTo4(resolvedScale),
+          y: roundTo4(resolvedScale),
+          z: roundTo4(resolvedScale),
         }
         setAxisScale(s)
 
