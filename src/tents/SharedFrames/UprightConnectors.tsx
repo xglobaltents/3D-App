@@ -16,18 +16,22 @@ const SHARED_FRAME_PATH = '/tents/SharedFrames/'
 const CONNECTOR_GLB = 'upright-connector-r.glb'
 
 /**
- * Connector placement derived from tent specs.
+ * Connector placement from PartBuilder-measured values.
  *
- * X inset:  plate.length + plate.depth/2  (plate face + GLB origin offset)
- * Y:        baseplateTop + eaveHeight + rafter-slope rise at effective inset
- * Roll:     atan(rafterSlope × plate.depth / plate.length)
- *
- * For the 15 m tent these resolve to ≈ X ±7.02, Y 3.675, roll 4.5°,
- * matching PartBuilder-measured values (±7.03, 3.68, 5°) within mm.
+ * Position:  -specs.halfWidth + 0.106, baseplateTop + eaveHeight + 0.0275, lineZ
+ * Rotation:  Pitch 180° (flipped) | Roll 4.5° (rafter slope)
+ * Scale:     Non-uniform — measured in PartBuilder to fit the connector profile.
  */
 
-/** mm → m  (PartBuilder-measured scale for this GLB). */
-const MODEL_SCALE = 0.001
+/** PartBuilder-measured non-uniform scale for this GLB. */
+const MODEL_SCALE_X = 0.0003548
+const MODEL_SCALE_Y = 0.0003673
+const MODEL_SCALE_Z = 0.002163
+
+/** PartBuilder-measured offsets from specs reference points. */
+const X_INSET = 0.106       // inward from halfWidth edge
+const Y_OFFSET = 0.0275     // above eave height
+const ROLL_ANGLE = 0.0785   // 4.5° rafter slope
 
 /**
  * UprightConnectors — loads the connector GLB and places thin instances
@@ -137,40 +141,18 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					stripAndApplyMaterial(templateMeshes, connectorMat)
 
 					// ── 5. Build model matrix (≡ PartBuilder modelNode) ───────
-					// Combines GLTF coordinate conversion + mm→m scale.
+					// Non-uniform scale from PartBuilder + GLTF handedness rotation.
 					const modelMatrix = Matrix.Compose(
-						new Vector3(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE),
+						new Vector3(MODEL_SCALE_X, MODEL_SCALE_Y, MODEL_SCALE_Z),
 						gltfRotation,
 						Vector3.Zero(),
 					)
 
-					// ── 6. Placement from specs ──────────────────────────────
-					const plate = specs.connectorPlate
-						?? { length: 0.424, height: 0.212, depth: 0.112 }
-					const uprightProfile = specs.profiles.upright
-					const slope = specs.rafterSlopeAtEave ?? 0
-					if (!specs.rafterSlopeAtEave) {
-						console.warn(
-							'[UprightConnectors] specs.rafterSlopeAtEave is missing — connectors will be placed flat at eave height with zero roll. Add rafterSlopeAtEave to your TentSpecs.',
-						)
-					}
+					// ── 6. Placement from PartBuilder-measured values ────────
 					const baseplateTop = specs.baseplate?.height ?? 0
 					const halfWidth = specs.halfWidth
-
-					// X inset: plate face length + half depth for GLB origin offset
-					const xInset = plate.length + plate.depth / 2
-
-					// Y: arch centerline height at the connector's effective inset,
-					// accounting for rafter rise across plate length + half upright width
-					const yPos = baseplateTop + specs.eaveHeight
-						+ slope * (xInset + uprightProfile.width / 2)
-
-					// Roll: rafter slope scaled by plate depth-to-length ratio.
-					// Computed ≈ 4.2° vs PartBuilder-measured 5° — the ~0.8° gap
-					// comes from the GLB origin not sitting exactly at the
-					// outer-bottom corner. If the arch visually doesn't mate,
-					// add a small tuning nudge, e.g. `rollAngle + 0.01`.
-					const rollAngle = Math.atan(slope * plate.depth / plate.length)
+					const xPos = halfWidth - X_INSET   // distance from center
+					const yPos = baseplateTop + specs.eaveHeight + Y_OFFSET
 
 					const totalLength = numBays * specs.bayDistance
 					const halfLength = totalLength / 2
@@ -181,18 +163,18 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
 
-						// Right side: pitch=180° (flipped), roll=+angle
+						// Right side: pitch=180° (flipped), roll=+4.5°
 						partMatrices.push(Matrix.Compose(
 							Vector3.One(),
-							Quaternion.FromEulerAngles(Math.PI, 0, rollAngle),
-							new Vector3(-(halfWidth - xInset), yPos, z),
+							Quaternion.FromEulerAngles(Math.PI, 0, ROLL_ANGLE),
+							new Vector3(-xPos, yPos, z),
 						))
 
-						// Left side (X-mirror): pitch=180°, yaw=180°, roll=−angle
+						// Left side (X-mirror): pitch=180°, yaw=180°, roll=−4.5°
 						partMatrices.push(Matrix.Compose(
 							Vector3.One(),
-							Quaternion.FromEulerAngles(Math.PI, Math.PI, -rollAngle),
-							new Vector3(+(halfWidth - xInset), yPos, z),
+							Quaternion.FromEulerAngles(Math.PI, Math.PI, -ROLL_ANGLE),
+							new Vector3(+xPos, yPos, z),
 						))
 					}
 

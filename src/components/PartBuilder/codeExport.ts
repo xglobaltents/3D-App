@@ -245,7 +245,7 @@ export function generateRichCode(ctx: CodeExportContext): string {
   c += `//   Frame line:  ${zDesc.desc}\n`
   c += `//   Orientation: ${orientation}\n`
   c += `//   Mirrors:     ${mirrorDesc}\n`
-  c += `//   Model rot:   ${modelRotDesc}  <- from GLTF __root__ (do NOT hardcode)\n`
+  c += `//   Model rot:   ${modelRotDesc}  <- GLTF handedness (always Y=PI for standard GLTF)\n`
   c += `//   Model scale:  ${sc.x}, ${sc.y}, ${sc.z}\n`
   c += `//   Dimensions:  ${dimensions.w.toFixed(3)} x ${dimensions.h.toFixed(3)} x ${dimensions.d.toFixed(3)} m (W x H x D)\n`
   c += `//\n`
