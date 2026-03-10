@@ -168,6 +168,25 @@ export function usePartLoader(
         const mat = getAluminumMaterial(scene)
         stripAndApplyMaterial(meshes, mat)
 
+        // Capture __root__ rotation before disposing it.
+        // GLTF is right-handed (Y-up, +Z toward viewer), BabylonJS left-handed
+        // (+Z away). The loader's __root__ carries rotation.y = PI for this
+        // conversion. We transfer it to modelNode so the part renders correctly.
+        const rootNode = loaded.find((m) => m.name === '__root__')
+        let rootRotX = 0, rootRotY = 0, rootRotZ = 0
+        if (rootNode) {
+          if (rootNode.rotationQuaternion) {
+            const euler = rootNode.rotationQuaternion.toEulerAngles()
+            rootRotX = euler.x
+            rootRotY = euler.y
+            rootRotZ = euler.z
+          } else {
+            rootRotX = rootNode.rotation.x
+            rootRotY = rootNode.rotation.y
+            rootRotZ = rootNode.rotation.z
+          }
+        }
+
         // Create part node hierarchy
         const partNode = new TransformNode('builder-part', scene)
         partNode.rotationQuaternion = null
@@ -178,6 +197,9 @@ export function usePartLoader(
         modelNode.rotationQuaternion = null
         modelNode.parent = partNode
         modelNodeRef.current = modelNode
+
+        // Apply GLTF __root__ rotation to modelNode for correct handedness
+        modelNode.rotation.set(rootRotX, rootRotY, rootRotZ)
 
         // Parent meshes to model node
         for (const mesh of meshes) {

@@ -366,10 +366,18 @@
   transform: none;
 }
 
-/* Hide export on mobile */
+/* Reposition export on mobile */
 @media (max-width: 768px) {
   #export-buttons {
-    display: none !important;
+    position: fixed;
+    bottom: 10px;
+    left: 50%;
+    transform: translateX(-50%);
+    gap: 6px;
+  }
+  .export-btn {
+    padding: 8px 14px;
+    font-size: 12px;
   }
 }
 
@@ -984,4 +992,40 @@ a:focus-visible {
   cursor: not-allowed;
   border-color: var(--border-color);
   color: var(--text-muted);
+}
+
+/* ===== Toast notification ===== */
+.toast {
+  position: fixed;
+  bottom: 60px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--bg-secondary);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 10px 20px;
+  font-size: 13px;
+  font-weight: 500;
+  z-index: 200;
+  box-shadow: 0 4px 16px rgba(0,0,0,0.5);
+  animation: toastIn 0.25s ease;
+  pointer-events: none;
+}
+
+@keyframes toastIn {
+  from { opacity: 0; transform: translateX(-50%) translateY(10px); }
+  to { opacity: 1; transform: translateX(-50%) translateY(0); }
+}
+
+/* ===== Builder Mode Notice ===== */
+.builder-mode-notice {
+  font-size: 0.75em;
+  color: var(--text-secondary);
+  background: rgba(76, 175, 80, 0.08);
+  border: 1px solid rgba(76, 175, 80, 0.25);
+  border-radius: 6px;
+  padding: 8px 10px;
+  margin-top: 6px;
+  text-align: center;
 }

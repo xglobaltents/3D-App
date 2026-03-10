@@ -15,6 +15,8 @@ export interface UsePartStorageReturn {
     mirrors: MirrorFlags,
     parts: GLBOption[]
   ) => void
+  saveBatch: (newConfigs: SavedConfig[]) => void
+  duplicate: (index: number, overrides: Partial<Pick<SavedConfig, 'name' | 'transform'>>) => void
   load: (config: SavedConfig) => void
   remove: (index: number) => void
 }
@@ -86,5 +88,35 @@ export function usePartStorage(
     [configs]
   )
 
-  return { configs, configName, setConfigName, save, load, remove }
+  const saveBatch = useCallback(
+    (newConfigs: SavedConfig[]) => {
+      const updated = [...configs, ...newConfigs]
+      setConfigs(updated)
+      saveConfigs(updated)
+      setConfigName('')
+    },
+    [configs]
+  )
+
+  const duplicate = useCallback(
+    (index: number, overrides: Partial<Pick<SavedConfig, 'name' | 'transform'>>) => {
+      const src = configs[index]
+      if (!src) return
+      const dup: SavedConfig = {
+        ...src,
+        ...overrides,
+        name: overrides.name ?? `${src.name} (copy)`,
+        transform: overrides.transform
+          ? { ...src.transform, ...overrides.transform }
+          : { ...src.transform },
+        timestamp: Date.now(),
+      }
+      const updated = [...configs, dup]
+      setConfigs(updated)
+      saveConfigs(updated)
+    },
+    [configs]
+  )
+
+  return { configs, configName, setConfigName, save, saveBatch, duplicate, load, remove }
 }

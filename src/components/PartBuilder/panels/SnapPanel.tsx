@@ -25,6 +25,11 @@ export const SnapPanel: FC<SnapPanelProps> = ({
 }) => {
   const [selectedLine, setSelectedLine] = useState(0)
   const [selectedSide, setSelectedSide] = useState<'right' | 'left'>('right')
+  const [snapY, setSnapY] = useState<'eave' | 'ground'>('eave')
+
+  const yPos = snapY === 'eave'
+    ? specs.baseplateTop + specs.eaveHeight
+    : specs.baseplateTop
 
   const quickPoints = [
     { label: 'Front-Right', x: -specs.halfWidth, z: -specs.halfLength },
@@ -74,14 +79,26 @@ export const SnapPanel: FC<SnapPanelProps> = ({
       <div className={styles.sectionTitle} style={{ marginTop: 10 }}>
         Quick Snap Points
       </div>
+      <div className={styles.row}>
+        <button
+          className={`${styles.smallBtn} ${snapY === 'eave' ? styles.smallBtnActive : ''}`}
+          onClick={() => setSnapY('eave')}
+        >
+          Eave Height
+        </button>
+        <button
+          className={`${styles.smallBtn} ${snapY === 'ground' ? styles.smallBtnActive : ''}`}
+          onClick={() => setSnapY('ground')}
+        >
+          Ground
+        </button>
+      </div>
       <div className={styles.alignGrid}>
         {quickPoints.map((p) => (
           <button
             key={p.label}
             className={styles.alignBtn}
-            onClick={() =>
-              onQuickSnap(p.x, specs.baseplateTop + specs.eaveHeight, p.z)
-            }
+            onClick={() => onQuickSnap(p.x, yPos, p.z)}
           >
             {p.label}
           </button>

@@ -93,15 +93,26 @@ export const MovePanel: FC<MovePanelProps> = ({
       </div>
 
       {/* Alignment shortcuts */}
+      <div className={styles.sectionTitle}>Align Position</div>
       <div className={styles.alignGrid}>
         {[
           { label: 'Right Side', key: 'right' },
           { label: 'Left Side', key: 'left' },
-          { label: 'Eave Height', key: 'eave' },
-          { label: 'Ground', key: 'ground' },
+          { label: 'Center X', key: 'cx' },
+        ].map((a) => (
+          <button
+            key={a.key}
+            className={styles.alignBtn}
+            onClick={() => align(a.key, alignSpecs)}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+      <div className={styles.alignGrid}>
+        {[
           { label: 'Front End', key: 'front' },
           { label: 'Back End', key: 'back' },
-          { label: 'Center X', key: 'cx' },
           { label: 'Center Z', key: 'cz' },
         ].map((a) => (
           <button
@@ -110,6 +121,41 @@ export const MovePanel: FC<MovePanelProps> = ({
             onClick={() => align(a.key, alignSpecs)}
           >
             {a.label}
+          </button>
+        ))}
+      </div>
+      <div className={styles.alignGrid}>
+        {[
+          { label: 'Eave Height', key: 'eave' },
+          { label: 'Ground', key: 'ground' },
+        ].map((a) => (
+          <button
+            key={a.key}
+            className={styles.alignBtn}
+            onClick={() => align(a.key, alignSpecs)}
+          >
+            {a.label}
+          </button>
+        ))}
+      </div>
+
+      {/* Compound alignment — common corner positions in one tap */}
+      <div className={styles.sectionTitle} style={{ marginTop: 6 }}>Quick Corners</div>
+      <div className={styles.alignGrid}>
+        {[
+          { label: 'Front-Right Eave', presets: ['right', 'front', 'eave'] },
+          { label: 'Front-Left Eave', presets: ['left', 'front', 'eave'] },
+          { label: 'Back-Right Eave', presets: ['right', 'back', 'eave'] },
+          { label: 'Back-Left Eave', presets: ['left', 'back', 'eave'] },
+          { label: 'Front-Right Ground', presets: ['right', 'front', 'ground'] },
+          { label: 'Front-Left Ground', presets: ['left', 'front', 'ground'] },
+        ].map((combo) => (
+          <button
+            key={combo.label}
+            className={styles.alignBtn}
+            onClick={() => combo.presets.forEach(p => align(p, alignSpecs))}
+          >
+            {combo.label}
           </button>
         ))}
       </div>

@@ -717,9 +717,15 @@
 
 @media (max-width: 768px) {
   .panel {
-    width: calc(100vw - 20px);
-    max-height: 50vh;
-    border-radius: 12px;
+    top: auto;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    width: 100%;
+    max-height: 45vh;
+    border-radius: 16px 16px 0 0;
+    padding: 12px 16px;
+    box-shadow: 0 -4px 20px rgba(0, 0, 0, 0.5);
   }
 
   .bigBtn {

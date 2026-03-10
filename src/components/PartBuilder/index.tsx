@@ -123,9 +123,14 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   const [showGizmo, setShowGizmo] = useState(false)
   const [gizmoSize, setGizmoSize] = useState(3)
   const [lockScale, setLockScale] = useState(true)
+  const [restoringConfig, setRestoringConfig] = useState<string | null>(null)
 
   // Pending saved config to apply after part loads (replaces unreliable 500ms timeout)
   const pendingConfigRef = useRef<SavedConfig | null>(null)
+
+  // Cache last-used transform + scale per part index so switching parts preserves position
+  const transformCacheRef = useRef<Map<number, TransformValues>>(new Map())
+  const scaleCacheRef = useRef<Map<number, AxisScale>>(new Map())
 
   // ── Undo / Redo ────────────────────────────────────────────────────────
   const { pushUndo, undo, redo, undoCount, redoCount, resetStacks } = useUndoRedo()
@@ -178,6 +183,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       const pending = pendingConfigRef.current
       if (pending) {
         pendingConfigRef.current = null
+        setRestoringConfig(null)
         // Apply saved transform, scale, mirrors
         partTransformHook.writeTransform(pending.transform)
         partTransformHook.setTransformDirect(pending.transform)
@@ -200,26 +206,45 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
         }
         partTransformHook.syncFromNode()
       } else {
-        // Default: position at real frame location for this part
-        const glb = GLB_PARTS[selectedPart]
-        const defaultPos = glb.getDefaultPosition?.({
-          specs,
-          baseplateTop,
-          halfLength,
-          firstLineZ: lineZs[0],
-        })
-        if (defaultPos) {
-          partNode.position.set(defaultPos.x, defaultPos.y, defaultPos.z)
-          if (defaultPos.rx != null || defaultPos.ry != null || defaultPos.rz != null) {
-            partNode.rotation.set(defaultPos.rx ?? 0, defaultPos.ry ?? 0, defaultPos.rz ?? 0)
-          }
+        // Restore cached transform if this part was previously positioned
+        const cachedTransform = transformCacheRef.current.get(selectedPart)
+        const cachedScale = scaleCacheRef.current.get(selectedPart)
+
+        if (cachedTransform) {
+          // Restore last-used position/rotation for this part
+          partTransformHook.writeTransform(cachedTransform)
+          partTransformHook.setTransformDirect(cachedTransform)
         } else {
-          partNode.position.set(-specs.halfWidth, baseplateTop + specs.eaveHeight, lineZs[0])
+          // First time: position at real frame location for this part
+          const glb = GLB_PARTS[selectedPart]
+          const defaultPos = glb.getDefaultPosition?.({
+            specs,
+            baseplateTop,
+            halfLength,
+            firstLineZ: lineZs[0],
+          })
+          if (defaultPos) {
+            partNode.position.set(defaultPos.x, defaultPos.y, defaultPos.z)
+            if (defaultPos.rx != null || defaultPos.ry != null || defaultPos.rz != null) {
+              partNode.rotation.set(defaultPos.rx ?? 0, defaultPos.ry ?? 0, defaultPos.rz ?? 0)
+            }
+          } else {
+            partNode.position.set(-specs.halfWidth, baseplateTop + specs.eaveHeight, lineZs[0])
+          }
+        }
+
+        if (cachedScale) {
+          partLoader.applyAxisScale(cachedScale)
         }
 
         // Create mirrors
         if (scene) {
           mirrorSystem.createMirrors(scene)
+          if (cachedScale) {
+            for (const m of mirrorSystem.mirrorInstancesRef.current) {
+              m.modelNode.scaling.set(cachedScale.x, cachedScale.y, cachedScale.z)
+            }
+          }
           mirrorSystem.syncMirrorVisibility(mirrors)
         }
 
@@ -291,6 +316,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       pushUndo(partTransformHook.readTransform(), partLoader.axisScale)
       // Store the config so onPartLoaded can apply it after the GLB finishes loading
       pendingConfigRef.current = config
+      setRestoringConfig(config.name)
       setSelectedPart(config.partIndex)
     },
     [pushUndo, partTransformHook, partLoader]
@@ -624,7 +650,12 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       <select
         className={styles.select}
         value={selectedPart}
-        onChange={(e) => setSelectedPart(+e.target.value)}
+        onChange={(e) => {
+          // Cache current transform + scale before switching
+          transformCacheRef.current.set(selectedPart, partTransformHook.readTransform())
+          scaleCacheRef.current.set(selectedPart, { ...partLoader.axisScale })
+          setSelectedPart(+e.target.value)
+        }}
         aria-label="Select part"
       >
         {GLB_PARTS.map((p, i) => (
@@ -638,7 +669,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       {partLoader.loading && (
         <div className={styles.loadingOverlay}>
           <div className={styles.loadingSpinner} />
-          <span>Loading part...</span>
+          <span>{restoringConfig ? `Restoring "${restoringConfig}"...` : 'Loading part...'}</span>
         </div>
       )}
 
@@ -805,6 +836,13 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
             onSave={handleSave}
             onLoad={storage.load}
             onRemove={storage.remove}
+            onDuplicate={storage.duplicate}
+            onSaveBatch={storage.saveBatch}
+            lineZs={lineZs}
+            currentTransform={partTransformHook.readTransform()}
+            currentPartIndex={selectedPart}
+            currentAxisScale={partLoader.axisScale}
+            currentMirrors={mirrors}
           />
         )}
       </div>

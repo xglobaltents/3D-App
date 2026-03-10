@@ -77,6 +77,12 @@ function App() {
   const [cameraView, setCameraView] = useState<CameraView>('orbit')
   const [loadingCount, setLoadingCount] = useState(0)
   const [builderMode, setBuilderMode] = useState(false)
+  const [toast, setToast] = useState<string | null>(null)
+
+  const showToast = useCallback((msg: string) => {
+    setToast(msg)
+    setTimeout(() => setToast(null), 2500)
+  }, [])
 
   // (#19) Mobile bottom sheet drag gesture
   const controlsRef = useRef<HTMLDivElement>(null)
@@ -103,38 +109,43 @@ function App() {
   // (#18) Screenshot handler
   const handleScreenshot = useCallback(() => {
     const canvas = document.getElementById('babylon-canvas') as HTMLCanvasElement | null
-    if (!canvas) return
+    if (!canvas) { showToast('Could not capture screenshot'); return }
     canvas.toBlob((blob) => {
-      if (!blob) return
+      if (!blob) { showToast('Screenshot failed'); return }
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
       a.download = `tent-${tentType}-${numBays}bays.png`
       a.click()
       URL.revokeObjectURL(url)
+      showToast('Screenshot saved')
     }, 'image/png')
-  }, [tentType, numBays])
+  }, [tentType, numBays, showToast])
 
   // (#18) Share handler
   const handleShare = useCallback(async () => {
     const canvas = document.getElementById('babylon-canvas') as HTMLCanvasElement | null
-    if (!canvas) return
+    if (!canvas) { showToast('Could not capture image'); return }
     try {
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
-      if (!blob) return
+      if (!blob) { showToast('Image capture failed'); return }
       if (navigator.share) {
         const file = new File([blob], `tent-${tentType}-${numBays}bays.png`, { type: 'image/png' })
         await navigator.share({ title: 'Bait Al Nokhada - 3D Tent', files: [file] })
       } else {
-        // Fallback: copy image URL
+        // Fallback: copy image to clipboard
         const url = URL.createObjectURL(blob)
         await navigator.clipboard.writeText(url)
         URL.revokeObjectURL(url)
+        showToast('Image link copied to clipboard')
       }
     } catch (err) {
+      if ((err as Error)?.name !== 'AbortError') {
+        showToast('Share failed')
+      }
       console.warn('Share failed:', err)
     }
-  }, [tentType, numBays])
+  }, [tentType, numBays, showToast])
 
   return (
     <SceneErrorBoundary>
@@ -195,8 +206,8 @@ function App() {
           <div className="subtitle">3D Tent Design System</div>
 
           {/* (#21) Environment moved near top */}
-          <label>Environment</label>
-          <select value={environmentPreset} onChange={(e) => setEnvironmentPreset(e.target.value as EnvironmentPreset)}>
+          <label htmlFor="env-select">Environment</label>
+          <select id="env-select" value={environmentPreset} onChange={(e) => setEnvironmentPreset(e.target.value as EnvironmentPreset)}>
             <option value="default">Default</option>
             <option value="white">White Studio</option>
             <option value="black">Black Studio</option>
@@ -214,28 +225,28 @@ function App() {
 
           <hr />
 
-          <label>Tent Type</label>
-          <select value={tentType} onChange={(e) => setTentType(e.target.value)}>
-            {TENT_OPTIONS.map(opt => (
-              <option key={opt.value} value={opt.value} disabled={!opt.available}>
-                {opt.label}{!opt.available ? ' (Coming Soon)' : ''}
+          <label htmlFor="tent-type-select">Tent Type</label>
+          <select id="tent-type-select" value={tentType} onChange={(e) => setTentType(e.target.value)}>
+            {TENT_OPTIONS.filter(opt => opt.available).map(opt => (
+              <option key={opt.value} value={opt.value}>
+                {opt.label}
               </option>
             ))}
           </select>
-
-          {/* (#16) Show notice for unavailable types */}
-          {!TENT_OPTIONS.find(t => t.value === tentType)?.available && (
+          {TENT_OPTIONS.some(opt => !opt.available) && (
             <div className="coming-soon-notice">
-              This tent type is not yet available. Select Premium Arch Tent.
+              More tent types coming soon: {TENT_OPTIONS.filter(opt => !opt.available).map(opt => opt.label).join(', ')}
             </div>
           )}
 
-          <label>Number of Bays</label>
+          <label htmlFor="bay-slider">Number of Bays</label>
           <input
+            id="bay-slider"
             type="range"
             min={1}
             max={20}
             value={numBays}
+            aria-label={`Number of bays: ${numBays} (${numBays * 5}m)`}
             onChange={(e) => setNumBays(parseInt(e.target.value))}
           />
           {/* (#20) Bay value always visible */}
@@ -293,9 +304,15 @@ function App() {
             className={`stats-toggle-btn ${builderMode ? 'active' : ''}`}
             onClick={() => setBuilderMode(!builderMode)}
             style={{ marginTop: 6 }}
+            title="Open the Part Builder to place and position individual frame parts with precision controls"
           >
             {builderMode ? 'Exit Builder' : 'Part Builder'}
           </button>
+          {builderMode && (
+            <div className="builder-mode-notice">
+              Part Builder active -- connectors temporarily hidden to allow part placement.
+            </div>
+          )}
         </div>
 
         {/* (#17) View Buttons — wired to camera animation */}
@@ -314,9 +331,14 @@ function App() {
 
         {/* (#18) Export Buttons — wired up */}
         <div id="export-buttons">
-          <button className="export-btn" onClick={handleScreenshot}>Screenshot</button>
-          <button className="export-btn primary" onClick={handleShare}>Share</button>
+          <button className="export-btn" onClick={handleScreenshot} aria-label="Save screenshot">Screenshot</button>
+          <button className="export-btn primary" onClick={handleShare} aria-label="Share tent design">Share</button>
         </div>
+
+        {/* Toast notification */}
+        {toast && (
+          <div className="toast" role="status" aria-live="polite">{toast}</div>
+        )}
       </div>
     </SceneErrorBoundary>
   )
