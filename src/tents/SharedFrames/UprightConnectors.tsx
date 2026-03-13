@@ -16,10 +16,11 @@ const SHARED_FRAME_PATH = '/tents/SharedFrames/'
 const CONNECTOR_GLB = 'upright-connector-r.glb'
 
 /**
- * Connector placement from PartBuilder-measured values.
+ * Connector placement — fully dynamic from upright profile + rafter slope.
  *
- * Position:  -specs.halfWidth + 0.106, baseplateTop + eaveHeight + 0.0275, lineZ
- * Rotation:  Pitch 180° (flipped) | Roll 4.5° (rafter slope)
+ * X inset:   uprightWidth / 2  (connector starts at upright’s inner edge)
+ * Y offset:  rafter rise at the inset point (slope × uprightWidth / 2)
+ * Roll:      atan(slope × connectorPlate.depth / connectorPlate.length)
  * Scale:     Non-uniform — measured in PartBuilder to fit the connector profile.
  */
 
@@ -28,10 +29,8 @@ const MODEL_SCALE_X = 0.0003548
 const MODEL_SCALE_Y = 0.0003673
 const MODEL_SCALE_Z = 0.002163
 
-/** PartBuilder-measured offsets from specs reference points. */
-const X_INSET = 0.106       // inward from halfWidth edge
-const Y_OFFSET = 0.0275     // above eave height
-const ROLL_ANGLE = 0.0785   // 4.5° rafter slope
+/** GLB origin sits ~4mm above the connector's bottom contact surface. */
+const CONNECTOR_ORIGIN_Y_OFFSET = 0.004
 
 /**
  * UprightConnectors — loads the connector GLB and places thin instances
@@ -148,11 +147,23 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						Vector3.Zero(),
 					)
 
-					// ── 6. Placement from PartBuilder-measured values ────────
+					// ── 6. Placement — dynamic from upright profile + slope ───
 					const baseplateTop = specs.baseplate?.height ?? 0
 					const halfWidth = specs.halfWidth
-					const xPos = halfWidth - X_INSET   // distance from center
-					const yPos = baseplateTop + specs.eaveHeight + Y_OFFSET
+					const slope = specs.rafterSlopeAtEave ?? 0
+					const plate = specs.connectorPlate
+						?? { length: 0.424, height: 0.212, depth: 0.112 }
+
+					// X: connector starts at upright’s inner edge
+					const xInset = specs.profiles.upright.width / 2
+					const xPos = halfWidth - xInset
+
+					// Y: eave + rafter rise at inset, minus GLB origin offset
+					const yPos = baseplateTop + specs.eaveHeight
+						+ slope * xInset - CONNECTOR_ORIGIN_Y_OFFSET
+
+					// Roll: tilt across the connector plate to match rafter angle
+					const rollAngle = Math.atan(slope * plate.depth / plate.length)
 
 					const totalLength = numBays * specs.bayDistance
 					const halfLength = totalLength / 2
@@ -163,17 +174,17 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
 
-						// Right side: pitch=180° (flipped), roll=+4.5°
+						// Right side: pitch=180° (flipped), roll=+slope
 						partMatrices.push(Matrix.Compose(
 							Vector3.One(),
-							Quaternion.FromEulerAngles(Math.PI, 0, ROLL_ANGLE),
+							Quaternion.FromEulerAngles(Math.PI, 0, rollAngle),
 							new Vector3(-xPos, yPos, z),
 						))
 
-						// Left side (X-mirror): pitch=180°, yaw=180°, roll=−4.5°
+						// Left side (X-mirror): pitch=180°, yaw=180°, roll=−slope
 						partMatrices.push(Matrix.Compose(
 							Vector3.One(),
-							Quaternion.FromEulerAngles(Math.PI, Math.PI, -ROLL_ANGLE),
+							Quaternion.FromEulerAngles(Math.PI, Math.PI, -rollAngle),
 							new Vector3(+xPos, yPos, z),
 						))
 					}

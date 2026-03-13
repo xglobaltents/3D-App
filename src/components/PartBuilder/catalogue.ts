@@ -43,18 +43,15 @@ export const GLB_PARTS: GLBOption[] = [
     file: 'upright-connector-r.glb',
     defaultScale: 0.001,
     getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => {
-      // Mirror UprightConnectors.tsx placement exactly (right-side, first frame line)
-      const plate = specs.connectorPlate ?? { length: 0.424, height: 0.212, depth: 0.112 }
       const slope = specs.rafterSlopeAtEave ?? 0
-      const xInset = plate.length + plate.depth / 2
-      const yPos = baseplateTop + specs.eaveHeight + slope * (xInset + specs.profiles.upright.width / 2)
-      const rollAngle = Math.atan(slope * plate.depth / plate.length)
+      const plate = specs.connectorPlate ?? { length: 0.424, depth: 0.112 }
+      const xInset = specs.profiles.upright.width / 2
       return {
         x: -(specs.halfWidth - xInset),
-        y: yPos,
+        y: baseplateTop + specs.eaveHeight + slope * xInset - 0.004,
         z: firstLineZ,
-        rx: Math.PI,   // pitch — matches right-side connector orientation
-        rz: rollAngle, // roll — matches rafter slope at eave
+        rx: Math.PI,
+        rz: Math.atan(slope * plate.depth / plate.length),
       }
     },
   },
