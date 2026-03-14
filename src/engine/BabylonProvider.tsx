@@ -38,7 +38,7 @@ let engineTypeDecision: 'webgpu' | 'webgl' | null = null
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 /** Default max hardware scaling ratio — caps render resolution on high-DPI screens */
-const DEFAULT_MAX_DPR = 2
+const DEFAULT_MAX_DPR = Infinity
 
 /** Resize debounce delay in ms */
 const RESIZE_DEBOUNCE_MS = 150

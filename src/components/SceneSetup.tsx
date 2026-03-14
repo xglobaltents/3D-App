@@ -609,11 +609,22 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     camera.angularSensibilityX = camConfig.angularSensibilityX
     camera.angularSensibilityY = camConfig.angularSensibilityY
 
+    // Pan along the ground plane (XZ) instead of camera-local up/down
+    camera.panningAxis = new Vector3(1, 0, 1)
+
     if (canvas) camera.attachControl(canvas, true)
     scene.activeCamera = camera
     cameraRef.current = camera
 
+    // Clamp camera target so panning can't go below ground
+    const onAfterInput = camera.onAfterCheckInputsObservable.add(() => {
+      if (camera.target.y < 0) {
+        camera.target.y = 0
+      }
+    })
+
     return () => {
+      camera.onAfterCheckInputsObservable.remove(onAfterInput)
       if (canvas) camera.detachControl()
       camera.dispose()
       cameraRef.current = null
