@@ -179,10 +179,15 @@ export function usePartLoader(
         modelNode.parent = partNode
         modelNodeRef.current = modelNode
 
-        // Standard GLTF handedness conversion: right-handed (+Z toward viewer)
-        // to BabylonJS left-handed (+Z away) requires rotation.y = PI.
-        // Hardcoded per Rule 10 — never read __root__ from loadGLB() results.
-        modelNode.rotation.y = Math.PI
+        // Apply model-level rotation from catalogue entry.
+        // Each part may need a different orientation based on how the GLB was
+        // authored — see docs/parts/*.md for per-part rationale.
+        // Falls back to standard GLTF handedness (rotation.y = PI) per Rule 10.
+        if (glb.modelRotation) {
+          modelNode.rotation.set(glb.modelRotation.x, glb.modelRotation.y, glb.modelRotation.z)
+        } else {
+          modelNode.rotation.y = Math.PI
+        }
 
         // Parent meshes to model node
         for (const mesh of meshes) {

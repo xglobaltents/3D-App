@@ -1,5 +1,7 @@
 import { Color3, Vector3 } from '@babylonjs/core'
 import type { TentSpecs } from '@/types'
+import { getFramePath, getSharedFramePath } from '@/lib/constants/assetPaths'
+import type { TentType, TentVariant } from '@/lib/constants/assetPaths'
 import type { MirrorConfig } from './types'
 
 /* ─── Default Position Context ────────────────────────────────────────────── */
@@ -23,6 +25,8 @@ export interface DefaultPosition {
 /* ─── GLB Part Catalogue ──────────────────────────────────────────────────── */
 
 export interface GLBOption {
+  /** Unique identifier for this part (stable across tent sizes for saved configs) */
+  id: string
   label: string
   folder: string
   file: string
@@ -32,102 +36,159 @@ export interface GLBOption {
    * If omitted, falls back to auto-scale based on bounding box.
    */
   defaultScale?: number
+  /**
+   * Model-level rotation applied to the modelNode.
+   * Overrides the default GLTF handedness rotation (y = PI).
+   * Each part may need a different orientation based on how the GLB was authored.
+   * See docs/parts/*.md for per-part rationale.
+   */
+  modelRotation?: { x: number; y: number; z: number }
   /** Returns the real frame position for this part based on tent geometry */
   getDefaultPosition?: (ctx: DefaultPositionContext) => DefaultPosition
 }
 
-export const GLB_PARTS: GLBOption[] = [
-  {
-    label: 'Upright Connector R',
-    folder: '/tents/SharedFrames/',
-    file: 'upright-connector-r.glb',
-    defaultScale: 0.001,
-    getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => {
-      const slope = specs.rafterSlopeAtEave ?? 0
-      const plate = specs.connectorPlate ?? { length: 0.424, depth: 0.112 }
-      const xInset = specs.profiles.upright.width / 2
-      return {
-        x: -(specs.halfWidth - xInset),
-        y: baseplateTop + specs.eaveHeight + slope * xInset - 0.004,
+/* ─── Shared parts — same GLBs for all tent types/sizes ───────────────────── */
+
+const SHARED = getSharedFramePath()
+
+function getSharedParts(specs: TentSpecs): GLBOption[] {
+  return [
+    {
+      id: 'baseplates',
+      label: 'Baseplates',
+      folder: SHARED,
+      file: 'basePlates.glb',
+      defaultScale: 0.001,
+      // PI/2 aligns the baseplate's longer side with tent Z (length) axis
+      modelRotation: { x: 0, y: Math.PI / 2, z: 0 },
+      getDefaultPosition: ({ specs: s, firstLineZ }) => ({
+        x: s.halfWidth,
+        y: 0,
         z: firstLineZ,
-        rx: Math.PI,
-        rz: Math.atan(slope * plate.depth / plate.length),
-      }
+      }),
     },
-  },
-  {
-    label: 'Connector Triangle',
-    folder: '/tents/SharedFrames/',
-    file: 'connector-triangle.glb',
-    defaultScale: 0.001,
-    getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => ({
-      // Triangle connector at eave junction
-      x: -specs.halfWidth,
-      y: baseplateTop + specs.eaveHeight,
-      z: firstLineZ,
-    }),
-  },
-  {
-    label: 'Eave Side Beam',
-    folder: '/tents/SharedFrames/',
-    file: 'eave-side-beam.glb',
-    defaultScale: 0.001,
-    getDefaultPosition: ({ specs, baseplateTop }) => ({
-      // Eave beam runs along the tent side at eave height, centered along Z
-      x: specs.halfWidth,
-      y: baseplateTop + specs.eaveHeight,
-      z: 0,
-    }),
-  },
-  {
-    label: 'Gable Support 77x127',
-    folder: '/tents/SharedFrames/',
-    file: 'gable-support-77x127.glb',
-    defaultScale: 0.001,
-    getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => ({
-      // Gable support at first gable position, standing on baseplate at front gable
-      x: specs.gableSupportPositions[0] ?? -2.5,
-      y: baseplateTop,
-      z: firstLineZ,
-    }),
-  },
-  {
-    label: 'Gable Beam 80x150',
-    folder: '/tents/SharedFrames/',
-    file: 'gable-beam-80x150.glb',
-    defaultScale: 0.001,
-    getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => ({
-      // Gable beam sits at eave height at the gable end, centered on X
-      x: 0,
-      y: baseplateTop + specs.eaveHeight,
-      z: firstLineZ,
-    }),
-  },
-  {
-    label: 'Baseplates',
-    folder: '/tents/SharedFrames/',
-    file: 'basePlates.glb',
-    defaultScale: 0.001,
-    getDefaultPosition: ({ specs, firstLineZ }) => ({
-      // Baseplate on the ground at the right-side first frame line
-      x: specs.halfWidth,
-      y: 0,
-      z: firstLineZ,
-    }),
-  },
-  {
-    label: 'Upright 15m',
-    folder: '/tents/PremiumArchTent/15m/frame/',
+    {
+      id: 'upright-connector',
+      label: `Upright Connector (${specs.profiles.upright.width * 1000}x${specs.profiles.upright.height * 1000})`,
+      folder: SHARED,
+      file: 'upright-connector-r.glb',
+      defaultScale: 0.001,
+      modelRotation: { x: 0, y: Math.PI, z: 0 },
+      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => {
+        const slope = s.rafterSlopeAtEave ?? 0
+        const plate = s.connectorPlate ?? { length: s.profiles.upright.width * 2, depth: s.profiles.upright.height }
+        const xInset = s.profiles.upright.width / 2
+        return {
+          x: -(s.halfWidth - xInset),
+          y: baseplateTop + s.eaveHeight + slope * xInset - 0.004,
+          z: firstLineZ,
+          rx: Math.PI,
+          rz: Math.atan(slope * plate.depth / plate.length),
+        }
+      },
+    },
+    {
+      id: 'connector-triangle',
+      label: 'Connector Triangle',
+      folder: SHARED,
+      file: 'connector-triangle.glb',
+      defaultScale: 0.001,
+      modelRotation: { x: 0, y: Math.PI, z: 0 },
+      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
+        x: -(s.halfWidth - s.profiles.upright.width / 2),
+        y: baseplateTop + s.eaveHeight - 0.190,
+        z: firstLineZ,
+      }),
+    },
+    {
+      id: 'eave-side-beam',
+      label: `Eave Side Beam (${specs.profiles.eaveBeam.width * 1000}x${specs.profiles.eaveBeam.height * 1000})`,
+      folder: SHARED,
+      file: 'eave-side-beam.glb',
+      defaultScale: 0.001,
+      modelRotation: { x: 0, y: Math.PI, z: 0 },
+      getDefaultPosition: ({ specs: s, baseplateTop }) => ({
+        x: s.halfWidth,
+        y: baseplateTop + s.eaveHeight - 0.090,
+        z: 0,
+      }),
+    },
+    {
+      id: 'gable-beam',
+      label: `Gable Beam (${specs.profiles.gableBeam.width * 1000}x${specs.profiles.gableBeam.height * 1000})`,
+      folder: SHARED,
+      file: 'gable-beam-80x150.glb',
+      defaultScale: 0.001,
+      modelRotation: { x: 0, y: Math.PI, z: 0 },
+      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
+        x: 0,
+        y: baseplateTop + s.eaveHeight,
+        z: firstLineZ,
+      }),
+    },
+    {
+      id: 'gable-support',
+      label: `Gable Support (${specs.profiles.gableColumn.width * 1000}x${specs.profiles.gableColumn.height * 1000})`,
+      folder: SHARED,
+      file: 'gable-support-77x127.glb',
+      defaultScale: 0.001,
+      modelRotation: { x: 0, y: Math.PI, z: 0 },
+      getDefaultPosition: ({ specs: s, firstLineZ }) => ({
+        x: s.gableSupportPositions[0] ?? -2.5,
+        y: 0,
+        z: firstLineZ,
+      }),
+    },
+  ]
+}
+
+/* ─── Per-variant parts — GLBs specific to tent type + size ───────────────── */
+
+function getVariantParts(specs: TentSpecs, tentType: TentType, variant: TentVariant): GLBOption[] {
+  const framePath = getFramePath(tentType, variant)
+  const parts: GLBOption[] = []
+
+  // Upright — per-variant because profile cross-section is baked into GLB geometry
+  parts.push({
+    id: 'upright',
+    label: `Upright ${variant} (${specs.profiles.upright.width * 1000}x${specs.profiles.upright.height * 1000})`,
+    folder: framePath,
     file: 'upright.glb',
     defaultScale: 0.001,
-    getDefaultPosition: ({ specs, baseplateTop, firstLineZ }) => ({
-      // Upright stands on baseplate at the right-side first frame line
-      x: specs.halfWidth,
+    // -PI/2 on X converts the GLB's Z-up orientation to Babylon Y-up
+    modelRotation: { x: -Math.PI / 2, y: 0, z: 0 },
+    getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
+      x: s.halfWidth,
       y: baseplateTop,
       z: firstLineZ,
     }),
-  },
-]
+  })
+
+  return parts
+}
+
+/* ─── Public API ──────────────────────────────────────────────────────────── */
+
+/**
+ * Build the GLB parts catalogue for a given tent configuration.
+ * All positions and labels adapt to the specs — no hardcoded measurements.
+ *
+ * @param specs      Active tent specs (dimensions, profiles, positions)
+ * @param tentType   e.g. 'PremiumArchTent', 'RevolutionTent'
+ * @param variant    e.g. '15m', '20m'
+ */
+export function getGLBParts(specs: TentSpecs, tentType: TentType, variant: TentVariant): GLBOption[] {
+  return [
+    ...getSharedParts(specs),
+    ...getVariantParts(specs, tentType, variant),
+  ]
+}
+
+/**
+ * @deprecated Use getGLBParts(specs, tentType, variant) instead.
+ * Kept temporarily for backward compat with saved configs that reference by index.
+ */
+export { getGLBParts as buildCatalogue }
 
 /* ─── Mirror Configurations ───────────────────────────────────────────────── */
 

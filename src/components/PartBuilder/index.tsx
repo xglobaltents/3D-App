@@ -36,7 +36,8 @@ import type { MirrorFlags, PanelTab, TransformValues, SavedConfig, AxisScale } f
 import { EMPTY_MIRRORS, DEFAULT_SCALE, MIN_SCALE, MAX_SCALE, clampAxisScale } from './types'
 import { safeDispose, safeDisposeArray } from './utils'
 import { generateRichCode, generateRichJSON, type CodeExportContext } from './codeExport'
-import { GLB_PARTS } from './catalogue'
+import { getGLBParts } from './catalogue'
+import type { TentType, TentVariant } from '@/lib/constants/assetPaths'
 import type { AlignSpecs } from './hooks/usePartTransform'
 
 import { useUndoRedo } from './hooks/useUndoRedo'
@@ -87,9 +88,11 @@ function dynamicStep(val: number): number {
 interface Props {
   specs: TentSpecs
   numBays: number
+  tentType: TentType
+  variant: TentVariant
 }
 
-export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
+export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant }) => {
   const scene = useScene()
 
   // ── Derived measurements (memoized) ────────────────────────────────────
@@ -100,6 +103,12 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
     const zs = Array.from({ length: nLines }, (_, i) => i * specs.bayDistance - halfLen)
     return { baseplateTop: bpTop, halfLength: halfLen, lineZs: zs }
   }, [specs, numBays])
+
+  // ── Dynamic parts catalogue ────────────────────────────────────────────
+  const parts = useMemo(
+    () => getGLBParts(specs, tentType, variant),
+    [specs, tentType, variant]
+  )
 
   const alignSpecs = useMemo<AlignSpecs>(
     () => ({
@@ -216,7 +225,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
           partTransformHook.setTransformDirect(cachedTransform)
         } else {
           // First time: position at real frame location for this part
-          const glb = GLB_PARTS[selectedPart]
+          const glb = parts[selectedPart]
           const defaultPos = glb.getDefaultPosition?.({
             specs,
             baseplateTop,
@@ -446,9 +455,9 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
 
   // Load part on mount and when selection changes (single source of truth)
   useEffect(() => {
-    if (scene) partLoader.loadPart(scene, GLB_PARTS[selectedPart])
+    if (scene) partLoader.loadPart(scene, parts[selectedPart])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [scene, selectedPart])
+  }, [scene, selectedPart, parts])
 
   // Sync mirror visibility when flags change
   useEffect(() => {
@@ -544,7 +553,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
   const handleCopy = useCallback(
     async (asCode: boolean) => {
       const v = partTransformHook.readTransform()
-      const glb = GLB_PARTS[selectedPart]
+      const glb = parts[selectedPart]
 
       // Read modelNode rotation (from GLTF __root__)
       const mn = partLoader.modelNodeRef.current
@@ -601,9 +610,9 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
       partTransformHook.readTransform(),
       partLoader.axisScale,
       mirrors,
-      GLB_PARTS
+      parts
     )
-  }, [storage, selectedPart, partTransformHook, partLoader.axisScale, mirrors])
+  }, [storage, selectedPart, partTransformHook, partLoader.axisScale, mirrors, parts])
 
   // ── Mirror count ───────────────────────────────────────────────────────
   const mirrorCount = countMirrors(mirrors)
@@ -658,7 +667,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
         }}
         aria-label="Select part"
       >
-        {GLB_PARTS.map((p, i) => (
+        {parts.map((p, i) => (
           <option key={i} value={i}>
             {p.label}
           </option>
@@ -843,6 +852,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
             currentPartIndex={selectedPart}
             currentAxisScale={partLoader.axisScale}
             currentMirrors={mirrors}
+            parts={parts}
           />
         )}
       </div>
@@ -852,7 +862,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays }) => {
         <button
           className={styles.resetBtn}
           onClick={() => {
-            const glb = GLB_PARTS[selectedPart]
+            const glb = parts[selectedPart]
             const defaultPos = glb.getDefaultPosition?.({
               specs,
               baseplateTop,

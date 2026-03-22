@@ -6,6 +6,8 @@ import '@babylonjs/loaders/glTF'
 interface CacheEntry {
   meshes: AbstractMesh[]
   sceneUid: string
+  /** World matrix of each mesh at import time (with full parent hierarchy). Keyed by mesh name. */
+  worldMatrices: Map<string, Matrix>
 }
 
 const glbCache = new Map<string, CacheEntry>()
@@ -73,14 +75,42 @@ export async function loadGLB(
     return []
   }
 
+  // Capture each mesh's WORLD matrix while the full parent hierarchy is still
+  // intact.  After caching + cloning, clones lose their parents and only carry
+  // local transforms — these saved world matrices let callers reconstruct the
+  // missing intermediate-node transforms (e.g. Node 4 scale/rotation from
+  // THREE.GLTFExporter GLBs).
+  const worldMatrices = new Map<string, Matrix>()
+  for (const m of result.meshes) {
+    if (m instanceof Mesh && m.getTotalVertices() > 0) {
+      m.computeWorldMatrix(true)
+      worldMatrices.set(m.name, m.getWorldMatrix().clone())
+    }
+  }
+
   // Store originals as hidden templates — callers get clones so
   // disposing clones never poisons the cache.
   for (const m of result.meshes) {
     m.setEnabled(false)
   }
-  glbCache.set(key, { meshes: result.meshes, sceneUid: scene.uid })
+  glbCache.set(key, { meshes: result.meshes, sceneUid: scene.uid, worldMatrices })
 
   return cloneTemplates(result.meshes)
+}
+
+/**
+ * Retrieve the cached world matrices from the ORIGINAL load for a given GLB.
+ * These matrices include the full parent-chain transforms (intermediate node
+ * scale, rotation, etc.) that cloned meshes lose.
+ *
+ * Returns undefined if the GLB hasn't been loaded yet or cache was evicted.
+ */
+export function getGLBWorldMatrices(
+  folder: string,
+  filename: string,
+): Map<string, Matrix> | undefined {
+  const key = folder + filename
+  return glbCache.get(key)?.worldMatrices
 }
 
 /**

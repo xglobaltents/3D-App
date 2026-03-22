@@ -1,6 +1,6 @@
 import { type FC, useState } from 'react'
 import type { SavedConfig, TransformValues, AxisScale, MirrorFlags } from '../types'
-import { GLB_PARTS } from '../catalogue'
+import type { GLBOption } from '../catalogue'
 import styles from '../PartBuilder.module.css'
 
 interface SavedPanelProps {
@@ -17,6 +17,7 @@ interface SavedPanelProps {
   currentPartIndex: number
   currentAxisScale: AxisScale
   currentMirrors: MirrorFlags
+  parts: GLBOption[]
 }
 
 export const SavedPanel: FC<SavedPanelProps> = ({
@@ -33,6 +34,7 @@ export const SavedPanel: FC<SavedPanelProps> = ({
   currentPartIndex,
   currentAxisScale,
   currentMirrors,
+  parts,
 }) => {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
 
@@ -62,7 +64,7 @@ export const SavedPanel: FC<SavedPanelProps> = ({
           className={styles.alignBtn}
           style={{ flex: 1 }}
           onClick={() => {
-            const label = GLB_PARTS[currentPartIndex]?.label ?? 'Part'
+            const label = parts[currentPartIndex]?.label ?? 'Part'
             const batch: SavedConfig[] = lineZs.map((z, i) => ({
               name: `${configName.trim() || label} L${i}`,
               partIndex: currentPartIndex,
@@ -95,7 +97,7 @@ export const SavedPanel: FC<SavedPanelProps> = ({
                 <div key={i} className={styles.configItem}>
                   <div className={styles.configName}>{c.name}</div>
                   <div className={styles.configMeta}>
-                    {GLB_PARTS[c.partIndex]?.label ?? 'Unknown'} |{' '}
+                    {parts[c.partIndex]?.label ?? 'Unknown'} |{' '}
                     {mirrorLabels.length > 0 ? mirrorLabels.join(' ') : 'Single'}
                   </div>
                   <div className={styles.configActions}>

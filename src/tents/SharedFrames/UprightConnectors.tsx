@@ -16,36 +16,46 @@ const SHARED_FRAME_PATH = '/tents/SharedFrames/'
 const CONNECTOR_GLB = 'upright-connector-r.glb'
 
 /**
- * Connector placement — fully dynamic from upright profile + rafter slope.
+ * Connector placement — fully dynamic from specs.connectorPlate + upright profile + rafter slope.
  *
- * X inset:   uprightWidth / 2  (connector starts at upright’s inner edge)
- * Y offset:  rafter rise at the inset point (slope × uprightWidth / 2)
- * Roll:      atan(slope × connectorPlate.depth / connectorPlate.length)
- * Scale:     Non-uniform — measured in PartBuilder to fit the connector profile.
+ * Scaling is computed dynamically from GLB raw bounds → specs.connectorPlate dimensions.
+ * Raw GLB axes → target specs mapping:
+ *   GLB X → connectorPlate.depth  (0.112m for 15m/20m)
+ *   GLB Y → connectorPlate.height (0.212m for 15m/20m)
+ *   GLB Z → connectorPlate.length (0.424m for 15m/20m)
+ *
+ * Position offsets:
+ *   X inset:   uprightWidth / 2  (connector starts at upright's inner edge)
+ *   Y offset:  rafter rise at the inset point (slope × uprightWidth / 2)
+ *   Roll:      atan(slope × connectorPlate.depth / connectorPlate.length)
  */
 
-/** PartBuilder-measured non-uniform scale for this GLB. */
-const MODEL_SCALE_X = 0.0003548
-const MODEL_SCALE_Y = 0.0003673
-const MODEL_SCALE_Z = 0.002163
-
-/** GLB origin sits ~4mm above the connector's bottom contact surface. */
-const CONNECTOR_ORIGIN_Y_OFFSET = 0.004
+/** Measure combined AABB of geometry meshes, returning min corner and size. */
+function measureRawBoundsMinMax(meshes: Mesh[]): { min: Vector3; size: Vector3 } {
+	let min = new Vector3(Infinity, Infinity, Infinity)
+	let max = new Vector3(-Infinity, -Infinity, -Infinity)
+	for (const m of meshes) {
+		if (m.getTotalVertices() > 0) {
+			m.computeWorldMatrix(true)
+			m.refreshBoundingInfo()
+			const bb = m.getBoundingInfo().boundingBox
+			min = Vector3.Minimize(min, bb.minimumWorld)
+			max = Vector3.Maximize(max, bb.maximumWorld)
+		}
+	}
+	return { min, size: max.subtract(min) }
+}
 
 /**
  * UprightConnectors — loads the connector GLB and places thin instances
  * at the top of every upright on both sides.
  *
- * Matrix chain mirrors the PartBuilder's two-node hierarchy:
- *
+ * Matrix chain:
  *   thinMatrix = meshLocal × modelMatrix × partMatrix
  *
  *   meshLocal:   preserves sub-mesh offsets from the GLB
- *   modelMatrix: GLTF __root__ rotation (read from GLB) + scale
+ *   modelMatrix: GLTF __root__ rotation (read from GLB) + specs-derived scale
  *   partMatrix:  world placement (position + rotation)
- *
- * IMPORTANT: The __root__ rotation is READ from the loaded GLB,
- * not hardcoded, to handle any GLTF export variation.
  */
 export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 	({ numBays, specs, enabled = true, onLoadStateChange }) => {
@@ -89,7 +99,6 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					}
 
 					// ── 2. Read __root__ transform BEFORE disposing it ───────
-					// The PartBuilder copies this to modelNode — we must match it.
 					let gltfRotation: Quaternion
 					if (rootMesh?.rotationQuaternion) {
 						gltfRotation = rootMesh.rotationQuaternion.clone()
@@ -105,15 +114,7 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						console.warn('[UprightConnectors] No __root__ found — using Y=PI fallback')
 					}
 
-					console.log(
-						'[UprightConnectors] GLTF __root__ rotation (euler):',
-						gltfRotation.toEulerAngles().toString(),
-						'quat:', gltfRotation.toString(),
-					)
-
 					// ── 3. Capture each mesh's LOCAL transform before zeroing ─
-					// The PartBuilder preserves these (only converts quat→euler).
-					// Zeroing them without accounting for them shifts geometry.
 					const meshLocalMatrices = new Map<Mesh, Matrix>()
 					for (const mesh of templateMeshes) {
 						const rot = mesh.rotationQuaternion?.clone()
@@ -139,28 +140,35 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 
 					stripAndApplyMaterial(templateMeshes, connectorMat)
 
-					// ── 5. Build model matrix (≡ PartBuilder modelNode) ───────
-					// Non-uniform scale from PartBuilder + GLTF handedness rotation.
-					const modelMatrix = Matrix.Compose(
-						new Vector3(MODEL_SCALE_X, MODEL_SCALE_Y, MODEL_SCALE_Z),
-						gltfRotation,
-						Vector3.Zero(),
-					)
+					// ── 5. Build model matrix from raw bounds → specs ─────────
+					const plate = specs.connectorPlate
+						?? { length: 0.424, height: 0.212, depth: 0.112 }
+					const rawBounds = measureRawBoundsMinMax(templateMeshes)
+					const rawSize = rawBounds.size
+
+					const scaleX = rawSize.x > 0 ? plate.depth / rawSize.x : 1
+					const scaleY = rawSize.y > 0 ? plate.height / rawSize.y : 1
+					const scaleZ = rawSize.z > 0 ? plate.length / rawSize.z : 1
+					const modelScale = new Vector3(scaleX, scaleY, scaleZ)
+
+					console.log('[UprightConnectors] rawSize:', rawSize.toString(), 'scale:', modelScale.toString(), 'target plate:', plate.depth, plate.height, plate.length, 'rawMin:', rawBounds.min.toString())
+					const modelMatrix = Matrix.Compose(modelScale, gltfRotation, Vector3.Zero())
+
+					// GLB origin Y offset → world offset after scaling
+					const originYOffsetWorld = rawBounds.min.y * scaleY
 
 					// ── 6. Placement — dynamic from upright profile + slope ───
 					const baseplateTop = specs.baseplate?.height ?? 0
 					const halfWidth = specs.halfWidth
 					const slope = specs.rafterSlopeAtEave ?? 0
-					const plate = specs.connectorPlate
-						?? { length: 0.424, height: 0.212, depth: 0.112 }
 
 					// X: connector starts at upright’s inner edge
 					const xInset = specs.profiles.upright.width / 2
 					const xPos = halfWidth - xInset
 
-					// Y: eave + rafter rise at inset, minus GLB origin offset
+					// Y: eave + rafter rise at inset, compensated for GLB origin
 					const yPos = baseplateTop + specs.eaveHeight
-						+ slope * xInset - CONNECTOR_ORIGIN_Y_OFFSET
+						+ slope * xInset + originYOffsetWorld
 
 					// Roll: tilt across the connector plate to match rafter angle
 					const rollAngle = Math.atan(slope * plate.depth / plate.length)
@@ -190,12 +198,8 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 					}
 
 					// ── 8. Per-mesh thin instance buffers ─────────────────────
-					// Each mesh may have different local offsets in the GLB, so:
-					//   thinMatrix = meshLocal × modelMatrix × partMatrix
 					for (const src of templateMeshes) {
 						const meshLocal = meshLocalMatrices.get(src) ?? Matrix.Identity()
-
-						// Combine mesh-local + model into a reusable prefix
 						const meshModelPrefix = meshLocal.multiply(modelMatrix)
 
 						const matrixData = new Float32Array(partMatrices.length * 16)
@@ -203,7 +207,6 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 							meshModelPrefix.multiply(partMatrices[j]).copyToArray(matrixData, j * 16)
 						}
 
-						// Zero mesh transform — thin instances supply world matrices
 						src.parent = root
 						src.position.setAll(0)
 						src.rotationQuaternion = null

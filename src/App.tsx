@@ -8,8 +8,11 @@ import { PerformanceStats } from '@/components/PerformanceStats'
 import { Baseplates } from '@/tents/SharedFrames/Baseplates'
 import { Uprights } from '@/tents/PremiumArchTent/15m/frame/Uprights'
 import { UprightConnectors } from '@/tents/SharedFrames/UprightConnectors'
+import { EaveSideBeams } from '@/tents/PremiumArchTent/15m/frame/EaveSideBeams'
+import { GableEaveBeams } from '@/tents/PremiumArchTent/15m/frame/GableEaveBeams'
+import { GableSupports } from '@/tents/PremiumArchTent/15m/frame/GableSupports'
 import { PartBuilder } from '@/components/PartBuilder'
-import { TENT_SPECS as PREMIUM_ARCH_SPECS } from '@/tents/PremiumArchTent/15m/specs'
+import { TENT_REGISTRY, getTentType, getWidths, getEaveVariants, getDefaultVariant, type TentVariantInfo } from '@/lib/tentRegistry'
 import { getReactiveCameraConfig } from '@/lib/constants/sceneConfig'
 import { useBottomSheetDrag } from '@/hooks/useBottomSheetDrag'
 import '@/App.css'
@@ -59,19 +62,15 @@ class SceneErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryStat
 
 // ─── Available tent types ────────────────────────────────────────────────────
 
-const TENT_OPTIONS = [
-  { value: 'PremiumArchTent', label: 'Premium Arch Tent', available: true },
-  { value: 'RevolutionTent', label: 'Revolution Tent', available: false },
-  { value: 'PolygonTent', label: 'Polygon Tent', available: false },
-  { value: 'PyramidTent', label: 'Pyramid Tent', available: false },
-] as const
+// Derived from registry — no manual TENT_OPTIONS needed
 
 // ─── App ─────────────────────────────────────────────────────────────────────
 
 function App() {
   const [numBays, setNumBays] = useState(3)
   const [showFrame, setShowFrame] = useState(true)
-  const [tentType, setTentType] = useState('PremiumArchTent')
+  const [tentTypeId, setTentTypeId] = useState('PremiumArchTent')
+  const [variantKey, setVariantKey] = useState(() => getDefaultVariant('PremiumArchTent')!.key)
   const [showStats, setShowStats] = useState(false)
   const [environmentPreset, setEnvironmentPreset] = useState<EnvironmentPreset>('default')
   const [cameraView, setCameraView] = useState<CameraView>('orbit')
@@ -88,10 +87,23 @@ function App() {
   const controlsRef = useRef<HTMLDivElement>(null)
   useBottomSheetDrag(controlsRef, { peekHeight: 80, maxHeight: 280 })
 
-  const tentLength = numBays * 5 // 5m per bay
+  // Resolve current tent type and active variant from registry
+  const tentTypeInfo = getTentType(tentTypeId)
+  const activeVariant: TentVariantInfo = tentTypeInfo?.variants.find(v => v.key === variantKey)
+    ?? getDefaultVariant(tentTypeId)
+    ?? TENT_REGISTRY[0].variants[0]
+  const specs = activeVariant.specs
+
+  // Derived UI selectors
+  const widths = getWidths(tentTypeId)
+  const currentWidth = activeVariant.widthLabel
+  const eaveVariants = getEaveVariants(tentTypeId, currentWidth)
+  const hasMultipleEaveOptions = eaveVariants.length > 1
+
+  const tentLength = numBays * specs.bayDistance
 
   // (#1) Reactive camera config based on tent dimensions
-  const cameraConfig = getReactiveCameraConfig(numBays, PREMIUM_ARCH_SPECS.eaveHeight, PREMIUM_ARCH_SPECS.bayDistance)
+  const cameraConfig = getReactiveCameraConfig(numBays, specs.eaveHeight, specs.bayDistance)
 
   // Loading state tracking for child components (#22)
   const handleLoadStateChange = useCallback((loading: boolean) => {
@@ -99,7 +111,20 @@ function App() {
   }, [])
 
   const isLoading = loadingCount > 0
-  const isPremiumArch = tentType === 'PremiumArchTent'
+  const isPremiumArch = tentTypeId === 'PremiumArchTent'
+
+  // Handler: tent type changed
+  const handleTentTypeChange = useCallback((newTypeId: string) => {
+    setTentTypeId(newTypeId)
+    const dv = getDefaultVariant(newTypeId)
+    if (dv) setVariantKey(dv.key)
+  }, [])
+
+  // Handler: width changed
+  const handleWidthChange = useCallback((newWidth: string) => {
+    const variants = getEaveVariants(tentTypeId, newWidth)
+    if (variants.length > 0) setVariantKey(variants[0].key)
+  }, [tentTypeId])
 
   // Reset camera view to orbit when user manually interacts
   const handleCameraViewReset = useCallback(() => {
@@ -115,12 +140,12 @@ function App() {
       const url = URL.createObjectURL(blob)
       const a = document.createElement('a')
       a.href = url
-      a.download = `tent-${tentType}-${numBays}bays.png`
+      a.download = `tent-${tentTypeId}-${numBays}bays.png`
       a.click()
       URL.revokeObjectURL(url)
       showToast('Screenshot saved')
     }, 'image/png')
-  }, [tentType, numBays, showToast])
+  }, [tentTypeId, numBays, showToast])
 
   // (#18) Share handler
   const handleShare = useCallback(async () => {
@@ -130,7 +155,7 @@ function App() {
       const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
       if (!blob) { showToast('Image capture failed'); return }
       if (navigator.share) {
-        const file = new File([blob], `tent-${tentType}-${numBays}bays.png`, { type: 'image/png' })
+        const file = new File([blob], `tent-${tentTypeId}-${numBays}bays.png`, { type: 'image/png' })
         await navigator.share({ title: 'Bait Al Nokhada - 3D Tent', files: [file] })
       } else {
         // Fallback: copy image to clipboard
@@ -145,7 +170,7 @@ function App() {
       }
       console.warn('Share failed:', err)
     }
-  }, [tentType, numBays, showToast])
+  }, [tentTypeId, numBays, showToast])
 
   return (
     <SceneErrorBoundary>
@@ -164,26 +189,46 @@ function App() {
               <>
                 <Baseplates
                   numBays={numBays}
-                  specs={PREMIUM_ARCH_SPECS}
+                  specs={specs}
                   enabled={true}
                   onLoadStateChange={handleLoadStateChange}
                 />
                 <Uprights
                   numBays={numBays}
-                  specs={PREMIUM_ARCH_SPECS}
+                  specs={specs}
                   enabled={true}
                   onLoadStateChange={handleLoadStateChange}
                 />
                 <UprightConnectors
                   numBays={numBays}
-                  specs={PREMIUM_ARCH_SPECS}
+                  specs={specs}
+                  enabled={!builderMode}
+                  onLoadStateChange={handleLoadStateChange}
+                />
+                <EaveSideBeams
+                  numBays={numBays}
+                  specs={specs}
+                  enabled={!builderMode}
+                  onLoadStateChange={handleLoadStateChange}
+                />
+                <GableEaveBeams
+                  numBays={numBays}
+                  specs={specs}
+                  enabled={!builderMode}
+                  onLoadStateChange={handleLoadStateChange}
+                />
+                <GableSupports
+                  numBays={numBays}
+                  specs={specs}
                   enabled={!builderMode}
                   onLoadStateChange={handleLoadStateChange}
                 />
                 {builderMode && (
                   <PartBuilder
-                    specs={PREMIUM_ARCH_SPECS}
+                    specs={specs}
                     numBays={numBays}
+                    tentType={activeVariant.tentType}
+                    variant={activeVariant.variant}
                   />
                 )}
               </>
@@ -216,27 +261,46 @@ function App() {
           <hr />
 
           <div className="specs">
-            <div><strong>Type:</strong> {
-              TENT_OPTIONS.find(t => t.value === tentType)?.label ?? tentType
-            }</div>
-            <div><strong>Width:</strong> 15m</div>
+            <div><strong>Type:</strong> {tentTypeInfo?.label ?? tentTypeId}</div>
+            <div><strong>Width:</strong> {specs.width}m</div>
+            <div><strong>Eave:</strong> {specs.eaveHeight}m</div>
             <div><strong>Length:</strong> {tentLength}m</div>
           </div>
 
           <hr />
 
           <label htmlFor="tent-type-select">Tent Type</label>
-          <select id="tent-type-select" value={tentType} onChange={(e) => setTentType(e.target.value)}>
-            {TENT_OPTIONS.filter(opt => opt.available).map(opt => (
-              <option key={opt.value} value={opt.value}>
-                {opt.label}
-              </option>
+          <select id="tent-type-select" value={tentTypeId} onChange={(e) => handleTentTypeChange(e.target.value)}>
+            {TENT_REGISTRY.filter(t => t.available).map(t => (
+              <option key={t.id} value={t.id}>{t.label}</option>
             ))}
           </select>
-          {TENT_OPTIONS.some(opt => !opt.available) && (
+          {TENT_REGISTRY.some(t => !t.available) && (
             <div className="coming-soon-notice">
-              More tent types coming soon: {TENT_OPTIONS.filter(opt => !opt.available).map(opt => opt.label).join(', ')}
+              More tent types coming soon: {TENT_REGISTRY.filter(t => !t.available).map(t => t.label).join(', ')}
             </div>
+          )}
+
+          {widths.length > 1 && (
+            <>
+              <label htmlFor="width-select">Width</label>
+              <select id="width-select" value={currentWidth} onChange={(e) => handleWidthChange(e.target.value)}>
+                {widths.map(w => (
+                  <option key={w} value={w}>{w}</option>
+                ))}
+              </select>
+            </>
+          )}
+
+          {hasMultipleEaveOptions && (
+            <>
+              <label htmlFor="eave-select">Eave Height</label>
+              <select id="eave-select" value={variantKey} onChange={(e) => setVariantKey(e.target.value)}>
+                {eaveVariants.map(v => (
+                  <option key={v.key} value={v.key}>{v.eaveLabel ?? `${v.specs.eaveHeight}m`}</option>
+                ))}
+              </select>
+            </>
           )}
 
           <label htmlFor="bay-slider">Number of Bays</label>
