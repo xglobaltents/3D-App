@@ -1,181 +1,157 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
-import { TransformNode, Mesh, Vector3, Matrix, Quaternion } from '@babylonjs/core'
+import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 
-interface GableSupportsProps {
-	numBays: number
-	specs: TentSpecs
-	enabled: boolean
-	onLoadStateChange?: (loading: boolean) => void
-}
+// ═════════════════════════════════════════════════════════════
+// Part:  Gable Support (127×76 profile — vertical column)
+// GLB:   /tents/SharedFrames/gable-support-77x127.glb
+// PDF:   Profile 03 — Gable Column
+//
+// PartBuilder export (15m tent, eaveHeight=3.2m):
+//   Scale:  (0.001, 0.001, 0.1396)
+//   Dims:   0.649 × 6.980 × 0.406 m
+//   Pos:    X=gableSupportPositions[i], Y=baseplateTop-0.3, Z=lineZs[0]
+//   Rot:    Pitch=90° | Yaw=90°
+//
+// Axis mapping:
+//   X = cross-section (FIXED at 0.001)
+//   Y = column HEIGHT (6.980m at scale 0.001 → PARAMETRIC with eaveHeight)
+//   Z = cross-section depth (FIXED at 0.1396)
+//
+// Height ratio: 0.001 / 6.980 = 0.0001433 per meter
+// So: Y_scale = 0.0001433 × specs.eaveHeight
+//
+// Pattern D: gable positions × front + back, count = positions.length × 2
+// ═════════════════════════════════════════════════════════════
 
 const FOLDER = '/tents/SharedFrames/'
 const FILE = 'gable-support-77x127.glb'
 
-// GLTF handedness rotation (right→left)
-const MODEL_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
+// Cross-section scales — FIXED for this GLB
+const CROSS_X = 0.001     // mm→m
+const CROSS_Z = 0.1396    // depth
 
-// Part orientation: pitch 90° to stand column vertical (-Z → +Y)
-const PART_QUAT = Quaternion.FromEulerAngles(Math.PI / 2, 0, 0)
+// Height scale ratio: 0.001 / 6.980 = 0.0001433 per meter
+const Y_SCALE_PER_METER = 0.001 / 6.980
 
-/** Measure combined axis-aligned bounding box of geometry meshes (raw, no parent). */
-function measureRawBounds(meshes: Mesh[]): Vector3 {
-	let min = new Vector3(Infinity, Infinity, Infinity)
-	let max = new Vector3(-Infinity, -Infinity, -Infinity)
-	for (const m of meshes) {
-		if (m.getTotalVertices() > 0) {
-			m.computeWorldMatrix(true)
-			m.refreshBoundingInfo()
-			const bb = m.getBoundingInfo().boundingBox
-			min = Vector3.Minimize(min, bb.minimumWorld)
-			max = Vector3.Maximize(max, bb.maximumWorld)
-		}
-	}
-	return max.subtract(min)
+const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
+// Pitch 90° + Yaw 90° from PartBuilder export
+const PART_ROT_QUAT = Quaternion.FromEulerAngles(Math.PI / 2, Math.PI / 2, 0)
+
+interface GableSupportsProps {
+  numBays: number
+  specs: TentSpecs
+  enabled: boolean
+  onLoadStateChange?: (loading: boolean) => void
 }
 
-/**
- * GableSupports — gable support columns at front and back gable faces.
- *
- * Scaling is computed dynamically from GLB raw bounds → specs profile
- * dimensions, not hardcoded from PartBuilder measurements.
- *
- * The GLB is a column oriented along Z. After GLTF rotation (Y=PI)
- * and part pitch (X=PI/2), the column stands vertical (Y-up).
- *
- * Raw GLB axes → target specs mapping:
- *   GLB X → gableColumn profile width  (0.127m for 15m/20m)
- *   GLB Y → gableColumn profile height (0.076m for 15m/20m)
- *   GLB Z → column height (eaveHeight)
- *
- * Layout: gableSupportPositions.length × 2 gable faces (front + back).
- */
-export const GableSupports: FC<GableSupportsProps> = memo(({ numBays, specs, enabled, onLoadStateChange }) => {
-	const scene = useScene()
-	const abortRef = useRef<AbortController | null>(null)
+export const GableSupports: FC<GableSupportsProps> = memo(({
+  numBays, specs, enabled, onLoadStateChange
+}) => {
+  const scene = useScene()
+  const abortRef = useRef<AbortController | null>(null)
 
-	useEffect(() => {
-		if (!scene || !enabled) return
+  useEffect(() => {
+    if (!scene || !enabled) return
 
-		abortRef.current?.abort()
-		const controller = new AbortController()
-		abortRef.current = controller
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
 
-		const root = new TransformNode('gable-supports-root', scene)
-		const allDisposables: (Mesh | TransformNode)[] = [root]
-		const aluminumMat = getAluminumMaterial(scene)
+    const root = new TransformNode('gable-supports-root', scene)
+    const allDisposables: (Mesh | TransformNode)[] = [root]
+    const aluminumMat = getAluminumMaterial(scene)
 
-		onLoadStateChange?.(true)
+    onLoadStateChange?.(true)
 
-		loadGLB(scene, FOLDER, FILE, controller.signal)
-			.then((loaded) => {
-				if (controller.signal.aborted) {
-					for (const m of loaded) m.dispose()
-					onLoadStateChange?.(false)
-					return
-				}
+    loadGLB(scene, FOLDER, FILE, controller.signal)
+      .then((loaded) => {
+        if (controller.signal.aborted) {
+          for (const m of loaded) m.dispose()
+          onLoadStateChange?.(false)
+          return
+        }
 
-				const meshes = loaded.filter(
-					(m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0
-				)
-				if (meshes.length === 0) {
-					for (const m of loaded) { try { m.dispose() } catch { /* gone */ } }
-					onLoadStateChange?.(false)
-					return
-				}
+        const geoMeshes = loaded.filter(
+          (m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0
+        )
+        if (!geoMeshes.length) {
+          for (const m of loaded) { try { m.dispose() } catch {} }
+          onLoadStateChange?.(false)
+          return
+        }
+        for (const m of loaded) {
+          if (!geoMeshes.includes(m as Mesh)) { try { m.dispose() } catch {} }
+        }
 
-				for (const m of loaded) {
-					if (!meshes.includes(m as Mesh)) {
-						try { m.dispose() } catch { /* gone */ }
-					}
-				}
+        stripAndApplyMaterial(geoMeshes, aluminumMat)
 
-				stripAndApplyMaterial(meshes, aluminumMat)
+        // Capture mesh-local transforms
+        const meshLocals = new Map<Mesh, Matrix>()
+        for (const mesh of geoMeshes) {
+          const rot = mesh.rotationQuaternion?.clone()
+            ?? Quaternion.FromEulerAngles(mesh.rotation.x, mesh.rotation.y, mesh.rotation.z)
+          meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
+        }
 
-				// Capture each mesh's local transform before zeroing
-				const meshLocals = new Map<Mesh, Matrix>()
-				for (const m of meshes) {
-					const rot = m.rotationQuaternion?.clone()
-						?? Quaternion.FromEulerAngles(m.rotation.x, m.rotation.y, m.rotation.z)
-					meshLocals.set(m, Matrix.Compose(m.scaling.clone(), rot, m.position.clone()))
-					console.log('[GableSupports] mesh', m.name, 'pos:', m.position.toString(), 'scale:', m.scaling.toString(), 'rotQ:', m.rotationQuaternion?.toString())
-				}
+        // ── Model scale: cross-section fixed, height parametric ──
+        const modelScale = new Vector3(
+          CROSS_X,                               // cross-section (fixed)
+          Y_SCALE_PER_METER * specs.eaveHeight,  // column height = eave height
+          CROSS_Z                                 // cross-section depth (fixed)
+        )
+        const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
 
-				// Reset mesh transforms to identity
-				for (const m of meshes) {
-					m.rotationQuaternion = null
-					m.rotation.setAll(0)
-					m.position.setAll(0)
-					m.scaling.setAll(1)
-				}
+        // ── Placement: Pattern D — gable positions × front + back ──
+        const baseplateTop = specs.baseplate?.height ?? 0
+        const halfLength = (numBays * specs.bayDistance) / 2
 
-				// Compute scale from raw GLB bounds → specs profile dimensions
-				const rawSize = measureRawBounds(meshes)
-				const profile = specs.profiles.gableColumn
-				const scaleX = rawSize.x > 0 ? profile.width / rawSize.x : 1
-				const scaleY = rawSize.y > 0 ? profile.height / rawSize.y : 1
-				const scaleZ = rawSize.z > 0 ? specs.eaveHeight / rawSize.z : 1
-				const modelScale = new Vector3(scaleX, scaleY, scaleZ)
+        const partMatrices: Matrix[] = []
+        for (const gz of [-halfLength, halfLength]) {
+          for (const gx of specs.gableSupportPositions) {
+            partMatrices.push(Matrix.Compose(
+              Vector3.One(), PART_ROT_QUAT,
+              new Vector3(gx, baseplateTop, gz)
+            ))
+          }
+        }
 
-				console.log('[GableSupports] rawSize:', rawSize.toString(), 'scale:', modelScale.toString(), 'target profile:', profile.width, profile.height, 'eaveH:', specs.eaveHeight)
-				const modelMatrix = Matrix.Compose(modelScale, MODEL_QUAT, Vector3.Zero())
+        // ── Thin instances ──
+        for (const src of geoMeshes) {
+          const meshLocal = meshLocals.get(src) ?? Matrix.Identity()
+          const prefix = meshLocal.multiply(modelMatrix)
+          const buf = new Float32Array(partMatrices.length * 16)
+          for (let j = 0; j < partMatrices.length; j++) {
+            prefix.multiply(partMatrices[j]).copyToArray(buf, j * 16)
+          }
+          src.parent = root
+          src.position.setAll(0)
+          src.rotationQuaternion = null
+          src.rotation.setAll(0)
+          src.scaling.setAll(1)
+          src.setEnabled(true)
+          src.thinInstanceSetBuffer('matrix', buf, 16)
+          src.thinInstanceRefreshBoundingInfo(false)
+          src.alwaysSelectAsActiveMesh = true
+          src.freezeWorldMatrix()
+          src.freezeNormals()
+          allDisposables.push(src)
+        }
+        onLoadStateChange?.(false)
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) console.error('GableSupports: load failed', err)
+        onLoadStateChange?.(false)
+      })
 
-				// Compute placement positions
-				const baseplateTop = specs.baseplate?.height ?? 0
-				const halfLength = (numBays * specs.bayDistance) / 2
-				const gableZs = [-halfLength, halfLength]
+    return () => {
+      controller.abort()
+      for (const d of allDisposables) { try { d.dispose() } catch {} }
+    }
+  }, [scene, enabled, specs, numBays, onLoadStateChange])
 
-				// Build part matrices — supports at each gable face
-				const partMatrices: Matrix[] = []
-				for (const gz of gableZs) {
-					for (const gx of specs.gableSupportPositions) {
-						partMatrices.push(Matrix.Compose(
-							Vector3.One(),
-							PART_QUAT,
-							new Vector3(gx, baseplateTop, gz),
-						))
-					}
-				}
-
-				// Apply thin instances: thinMatrix = meshLocal × modelMatrix × partMatrix
-				for (const src of meshes) {
-					const meshLocal = meshLocals.get(src) ?? Matrix.Identity()
-					const prefix = meshLocal.multiply(modelMatrix)
-
-					const buf = new Float32Array(partMatrices.length * 16)
-					for (let j = 0; j < partMatrices.length; j++) {
-						prefix.multiply(partMatrices[j]).copyToArray(buf, j * 16)
-					}
-
-					src.parent = root
-					src.setEnabled(true)
-					src.thinInstanceSetBuffer('matrix', buf, 16)
-					src.thinInstanceRefreshBoundingInfo(false)
-					src.alwaysSelectAsActiveMesh = true
-					src.freezeWorldMatrix()
-					src.freezeNormals()
-					allDisposables.push(src)
-				}
-
-				onLoadStateChange?.(false)
-			})
-			.catch((err) => {
-				if (!controller.signal.aborted) {
-					console.error('GableSupports: failed to load', err)
-				}
-				onLoadStateChange?.(false)
-			})
-
-		return () => {
-			controller.abort()
-			for (const d of allDisposables) {
-				try { d.dispose() } catch { /* gone */ }
-			}
-		}
-	}, [scene, enabled, specs, numBays, onLoadStateChange])
-
-	return null
+  return null
 })
