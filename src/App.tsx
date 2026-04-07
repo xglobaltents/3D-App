@@ -5,12 +5,6 @@ import { BabylonProvider } from '@/engine/BabylonProvider'
 
 import { SceneSetup, type EnvironmentPreset, type CameraView } from '@/components/SceneSetup'
 import { PerformanceStats } from '@/components/PerformanceStats'
-import { Baseplates } from '@/tents/SharedFrames/Baseplates'
-import { Uprights } from '@/tents/PremiumArchTent/15m/frame/Uprights'
-import { UprightConnectors } from '@/tents/SharedFrames/UprightConnectors'
-import { EaveSideBeams } from '@/tents/PremiumArchTent/15m/frame/EaveSideBeams'
-import { GableEaveBeams } from '@/tents/PremiumArchTent/15m/frame/GableEaveBeams'
-import { GableSupports } from '@/tents/PremiumArchTent/15m/frame/GableSupports'
 import { PartBuilder } from '@/components/PartBuilder'
 import { TENT_REGISTRY, getTentType, getWidths, getEaveVariants, getDefaultVariant, type TentVariantInfo } from '@/lib/tentRegistry'
 import { getReactiveCameraConfig } from '@/lib/constants/sceneConfig'
@@ -111,7 +105,9 @@ function App() {
   }, [])
 
   const isLoading = loadingCount > 0
-  const isPremiumArch = tentTypeId === 'PremiumArchTent'
+
+  // Resolve the composition component from the registry
+  const TentComponent = activeVariant.component
 
   // Handler: tent type changed
   const handleTentTypeChange = useCallback((newTypeId: string) => {
@@ -157,12 +153,14 @@ function App() {
       if (navigator.share) {
         const file = new File([blob], `tent-${tentTypeId}-${numBays}bays.png`, { type: 'image/png' })
         await navigator.share({ title: 'Bait Al Nokhada - 3D Tent', files: [file] })
+      } else if (navigator.clipboard && typeof ClipboardItem !== 'undefined') {
+        // Fallback: copy image directly to clipboard
+        await navigator.clipboard.write([
+          new ClipboardItem({ 'image/png': blob })
+        ])
+        showToast('Image copied to clipboard')
       } else {
-        // Fallback: copy image to clipboard
-        const url = URL.createObjectURL(blob)
-        await navigator.clipboard.writeText(url)
-        URL.revokeObjectURL(url)
-        showToast('Image link copied to clipboard')
+        showToast('Sharing is not supported in this browser')
       }
     } catch (err) {
       if ((err as Error)?.name !== 'AbortError') {
@@ -185,45 +183,16 @@ function App() {
               onCameraViewReset={handleCameraViewReset}
             />
 
-            {isPremiumArch && showFrame && (
+            {TentComponent && (
               <>
-                <Baseplates
+                <TentComponent
                   numBays={numBays}
                   specs={specs}
-                  enabled={true}
+                  showFrame={showFrame}
+                  builderMode={builderMode}
                   onLoadStateChange={handleLoadStateChange}
                 />
-                <Uprights
-                  numBays={numBays}
-                  specs={specs}
-                  enabled={true}
-                  onLoadStateChange={handleLoadStateChange}
-                />
-                <UprightConnectors
-                  numBays={numBays}
-                  specs={specs}
-                  enabled={!builderMode}
-                  onLoadStateChange={handleLoadStateChange}
-                />
-                <EaveSideBeams
-                  numBays={numBays}
-                  specs={specs}
-                  enabled={!builderMode}
-                  onLoadStateChange={handleLoadStateChange}
-                />
-                <GableEaveBeams
-                  numBays={numBays}
-                  specs={specs}
-                  enabled={!builderMode}
-                  onLoadStateChange={handleLoadStateChange}
-                />
-                <GableSupports
-                  numBays={numBays}
-                  specs={specs}
-                  enabled={!builderMode}
-                  onLoadStateChange={handleLoadStateChange}
-                />
-                {builderMode && (
+                {showFrame && builderMode && (
                   <PartBuilder
                     specs={specs}
                     numBays={numBays}

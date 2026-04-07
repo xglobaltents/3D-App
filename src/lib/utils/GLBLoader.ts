@@ -296,3 +296,40 @@ export function createFrozenThinInstances(
   mesh.freezeWorldMatrix()
   mesh.freezeNormals()
 }
+
+// ─── World Bounds Measurement ────────────────────────────────────────────────
+
+export interface BoundsResult { min: Vector3; max: Vector3; size: Vector3 }
+
+const boundsCache = new Map<string, BoundsResult>()
+
+/** Clear all cached bounds. Call when meshes change (e.g. bay count update). */
+export function clearBoundsCache(): void {
+  boundsCache.clear()
+}
+
+/**
+ * Measure combined world-space bounding box for an array of meshes.
+ * Results are cached by optional key to avoid repeated `computeWorldMatrix` calls.
+ */
+export function measureWorldBounds(meshes: Mesh[], cacheKey?: string): BoundsResult {
+  if (cacheKey) {
+    const cached = boundsCache.get(cacheKey)
+    if (cached) return cached
+  }
+  let min = new Vector3(Infinity, Infinity, Infinity)
+  let max = new Vector3(-Infinity, -Infinity, -Infinity)
+  for (const m of meshes) {
+    if (m.getTotalVertices() > 0) {
+      m.computeWorldMatrix(true)
+      m.refreshBoundingInfo()
+      m.getBoundingInfo().update(m.getWorldMatrix())
+      const bb = m.getBoundingInfo().boundingBox
+      min = Vector3.Minimize(min, bb.minimumWorld)
+      max = Vector3.Maximize(max, bb.maximumWorld)
+    }
+  }
+  const result = { min, max, size: max.subtract(min) }
+  if (cacheKey) boundsCache.set(cacheKey, result)
+  return result
+}

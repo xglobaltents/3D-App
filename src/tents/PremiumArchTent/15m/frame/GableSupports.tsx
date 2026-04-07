@@ -4,38 +4,23 @@ import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/cor
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
+import { GABLE_SUPPORT_REG, computePartScale } from '@/lib/constants/glbRegistry'
 
 // ═════════════════════════════════════════════════════════════
-// Part:  Gable Support (127×76 profile — vertical column)
+// Part:  Gable Support (profile from specs)
 // GLB:   /tents/SharedFrames/gable-support-77x127.glb
-// PDF:   Profile 03 — Gable Column
+// Registry: GABLE_SUPPORT_REG (centralized RAW extents + axis mapping)
 //
-// PartBuilder export (15m tent, eaveHeight=3.2m):
-//   Scale:  (0.001, 0.001, 0.1396)
-//   Dims:   0.649 × 6.980 × 0.406 m
-//   Pos:    X=gableSupportPositions[i], Y=baseplateTop-0.3, Z=lineZs[0]
-//   Rot:    Pitch=90° | Yaw=90°
-//
-// Axis mapping:
-//   X = cross-section (FIXED at 0.001)
-//   Y = column HEIGHT (6.980m at scale 0.001 → PARAMETRIC with eaveHeight)
-//   Z = cross-section depth (FIXED at 0.1396)
-//
-// Height ratio: 0.001 / 6.980 = 0.0001433 per meter
-// So: Y_scale = 0.0001433 × specs.eaveHeight
+// Axis mapping (from registry):
+//   X = cross-section (FIXED)
+//   Y = column HEIGHT (PARAMETRIC with eaveHeight)
+//   Z = cross-section depth (FIXED)
 //
 // Pattern D: gable positions × front + back, count = positions.length × 2
 // ═════════════════════════════════════════════════════════════
 
 const FOLDER = '/tents/SharedFrames/'
 const FILE = 'gable-support-77x127.glb'
-
-// Cross-section scales — FIXED for this GLB
-const CROSS_X = 0.001     // mm→m
-const CROSS_Z = 0.1396    // depth
-
-// Height scale ratio: 0.001 / 6.980 = 0.0001433 per meter
-const Y_SCALE_PER_METER = 0.001 / 6.980
 
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 // Pitch 90° + Yaw 90° from PartBuilder export
@@ -97,12 +82,15 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
           meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
         }
 
-        // ── Model scale: cross-section fixed, height parametric ──
-        const modelScale = new Vector3(
-          CROSS_X,                               // cross-section (fixed)
-          Y_SCALE_PER_METER * specs.eaveHeight,  // column height = eave height
-          CROSS_Z                                 // cross-section depth (fixed)
-        )
+        // ── Model scale from centralized registry ──
+        const regScale = computePartScale(GABLE_SUPPORT_REG, {
+          profiles: specs.profiles,
+          bayDistance: specs.bayDistance,
+          eaveHeight: specs.eaveHeight,
+          tentWidth: specs.width,
+          halfWidth: specs.halfWidth,
+        })
+        const modelScale = new Vector3(regScale.x, regScale.y, regScale.z)
         const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
 
         // ── Placement: Pattern D — gable positions × front + back ──

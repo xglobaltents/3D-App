@@ -7,14 +7,9 @@ import type { TentSpecs } from '@/types'
 import { GABLE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 
 // ═════════════════════════════════════════════════════════════
-// Part:  Gable Eave Beam (profile from specs)
+// Part:  Gable Beam (127x76) — 0.03m above eave (in arch zone)
 // GLB:   /tents/SharedFrames/gable-beam-80x150.glb
 // Registry: GABLE_BEAM_REG (centralized RAW extents + axis mapping)
-//
-// Axis mapping (from registry):
-//   X = beam LENGTH (PARAMETRIC with tent width)
-//   Y = cross-section height (FIXED)
-//   Z = cross-section depth (FIXED)
 //
 // Pattern C: front + back gable, count = 2
 // ═════════════════════════════════════════════════════════════
@@ -25,14 +20,14 @@ const FILE = 'gable-beam-80x150.glb'
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 const PART_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI / 2, 0) // yaw 90°
 
-interface GableEaveBeamsProps {
+interface GableBeamsProps {
   numBays: number
   specs: TentSpecs
   enabled: boolean
   onLoadStateChange?: (loading: boolean) => void
 }
 
-export const GableEaveBeams: FC<GableEaveBeamsProps> = memo(({
+export const GableBeams: FC<GableBeamsProps> = memo(({
   numBays, specs, enabled, onLoadStateChange
 }) => {
   const scene = useScene()
@@ -45,7 +40,7 @@ export const GableEaveBeams: FC<GableEaveBeamsProps> = memo(({
     const controller = new AbortController()
     abortRef.current = controller
 
-    const root = new TransformNode('gable-eave-beams-root', scene)
+    const root = new TransformNode('gable-beams-root', scene)
     const allDisposables: (Mesh | TransformNode)[] = [root]
     const aluminumMat = getAluminumMaterial(scene)
 
@@ -94,7 +89,7 @@ export const GableEaveBeams: FC<GableEaveBeamsProps> = memo(({
 
         // ── Placement: Pattern C — front + back gable ──
         const baseplateTop = specs.baseplate?.height ?? 0
-        const beamY = baseplateTop + specs.eaveHeight
+        const beamY = baseplateTop + specs.eaveHeight + 0.03
         const halfLength = (numBays * specs.bayDistance) / 2
 
         const partMatrices: Matrix[] = []
@@ -129,7 +124,7 @@ export const GableEaveBeams: FC<GableEaveBeamsProps> = memo(({
         onLoadStateChange?.(false)
       })
       .catch((err) => {
-        if (!controller.signal.aborted) console.error('GableEaveBeams: load failed', err)
+        if (!controller.signal.aborted) console.error('GableBeams: load failed', err)
         onLoadStateChange?.(false)
       })
 

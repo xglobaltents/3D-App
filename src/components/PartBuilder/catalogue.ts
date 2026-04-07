@@ -3,6 +3,19 @@ import type { TentSpecs } from '@/types'
 import { getFramePath, getSharedFramePath } from '@/lib/constants/assetPaths'
 import type { TentType, TentVariant } from '@/lib/constants/assetPaths'
 import type { MirrorConfig } from './types'
+import {
+  type GLBPartRegistry,
+  type ScaleContext,
+  computePartScale,
+  getAxisLabels,
+  BASEPLATE_REG,
+  UPRIGHT_REG,
+  UPRIGHT_CONNECTOR_REG,
+  CONNECTOR_TRIANGLE_REG,
+  EAVE_SIDE_BEAM_REG,
+  GABLE_BEAM_REG,
+  GABLE_SUPPORT_REG,
+} from '@/lib/constants/glbRegistry'
 
 /* ─── Default Position Context ────────────────────────────────────────────── */
 
@@ -34,8 +47,14 @@ export interface GLBOption {
    * Explicit uniform scale to apply to the loaded model.
    * Use 0.001 for GLBs exported in millimeters (most CAD exports).
    * If omitted, falls back to auto-scale based on bounding box.
+   * @deprecated Prefer registry + initialAxisScale for per-axis scaling.
    */
   defaultScale?: number
+  /**
+   * Per-axis initial scale computed from the GLB registry + specs.
+   * When present, overrides defaultScale with correct profile-derived values.
+   */
+  initialAxisScale?: { x: number; y: number; z: number }
   /**
    * Model-level rotation applied to the modelNode.
    * Overrides the default GLTF handedness rotation (y = PI).
@@ -45,6 +64,10 @@ export interface GLBOption {
   modelRotation?: { x: number; y: number; z: number }
   /** Returns the real frame position for this part based on tent geometry */
   getDefaultPosition?: (ctx: DefaultPositionContext) => DefaultPosition
+  /** Registry entry linking this part to its RAW extents + axis mapping */
+  registry?: GLBPartRegistry
+  /** Human-readable per-axis labels describing what each scale axis controls */
+  axisLabels?: { x: string; y: string; z: string }
 }
 
 /* ─── Shared parts — same GLBs for all tent types/sizes ───────────────────── */
@@ -52,6 +75,27 @@ export interface GLBOption {
 const SHARED = getSharedFramePath()
 
 function getSharedParts(specs: TentSpecs): GLBOption[] {
+  const scaleCtx: ScaleContext = {
+    profiles: specs.profiles,
+    bayDistance: specs.bayDistance,
+    eaveHeight: specs.eaveHeight,
+    tentWidth: specs.width,
+    halfWidth: specs.halfWidth,
+  }
+  const plateCtx = specs.connectorPlate
+    ? { depth: specs.connectorPlate.depth, height: specs.connectorPlate.height, length: specs.connectorPlate.length }
+    : { depth: specs.profiles.upright.height, height: specs.profiles.upright.width, length: specs.profiles.upright.width * 2 }
+
+  const connectorScale = computePartScale(UPRIGHT_CONNECTOR_REG, scaleCtx, plateCtx)
+  const eaveSideScale = computePartScale(EAVE_SIDE_BEAM_REG, scaleCtx)
+  const gableBeamScale = computePartScale(GABLE_BEAM_REG, scaleCtx)
+  const gableSupportScale = computePartScale(GABLE_SUPPORT_REG, scaleCtx)
+
+  const connectorLabels = getAxisLabels(UPRIGHT_CONNECTOR_REG, scaleCtx, plateCtx)
+  const eaveSideLabels = getAxisLabels(EAVE_SIDE_BEAM_REG, scaleCtx)
+  const gableBeamLabels = getAxisLabels(GABLE_BEAM_REG, scaleCtx)
+  const gableSupportLabels = getAxisLabels(GABLE_SUPPORT_REG, scaleCtx)
+
   return [
     {
       id: 'baseplates',
@@ -59,6 +103,8 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       folder: SHARED,
       file: 'basePlates.glb',
       defaultScale: 0.001,
+      registry: BASEPLATE_REG,
+      axisLabels: { x: 'uniform', y: 'uniform', z: 'uniform' },
       // PI/2 aligns the baseplate's longer side with tent Z (length) axis
       modelRotation: { x: 0, y: Math.PI / 2, z: 0 },
       getDefaultPosition: ({ specs: s, firstLineZ }) => ({
@@ -73,6 +119,9 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       folder: SHARED,
       file: 'upright-connector-r.glb',
       defaultScale: 0.001,
+      initialAxisScale: connectorScale,
+      registry: UPRIGHT_CONNECTOR_REG,
+      axisLabels: connectorLabels,
       modelRotation: { x: 0, y: Math.PI, z: 0 },
       getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => {
         const slope = s.rafterSlopeAtEave ?? 0
@@ -93,6 +142,8 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       folder: SHARED,
       file: 'connector-triangle.glb',
       defaultScale: 0.001,
+      registry: CONNECTOR_TRIANGLE_REG,
+      axisLabels: { x: 'uniform', y: 'uniform', z: 'uniform' },
       modelRotation: { x: 0, y: Math.PI, z: 0 },
       getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
         x: -(s.halfWidth - s.profiles.upright.width / 2),
@@ -105,12 +156,15 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       label: `Eave Side Beam (${specs.profiles.eaveBeam.width * 1000}x${specs.profiles.eaveBeam.height * 1000})`,
       folder: SHARED,
       file: 'eave-side-beam.glb',
-      defaultScale: 0.001,
+      initialAxisScale: eaveSideScale,
+      registry: EAVE_SIDE_BEAM_REG,
+      axisLabels: eaveSideLabels,
       modelRotation: { x: 0, y: Math.PI, z: 0 },
       getDefaultPosition: ({ specs: s, baseplateTop }) => ({
-        x: s.halfWidth,
-        y: baseplateTop + s.eaveHeight - 0.090,
+        x: s.halfWidth + 0.19,
+        y: baseplateTop + s.eaveHeight - 0.1,
         z: 0,
+        rz: -Math.PI,
       }),
     },
     {
@@ -118,12 +172,15 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       label: `Gable Beam (${specs.profiles.gableBeam.width * 1000}x${specs.profiles.gableBeam.height * 1000})`,
       folder: SHARED,
       file: 'gable-beam-80x150.glb',
-      defaultScale: 0.001,
+      initialAxisScale: gableBeamScale,
+      registry: GABLE_BEAM_REG,
+      axisLabels: gableBeamLabels,
       modelRotation: { x: 0, y: Math.PI, z: 0 },
       getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
         x: 0,
         y: baseplateTop + s.eaveHeight,
         z: firstLineZ,
+        ry: Math.PI / 2,
       }),
     },
     {
@@ -131,12 +188,16 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       label: `Gable Support (${specs.profiles.gableColumn.width * 1000}x${specs.profiles.gableColumn.height * 1000})`,
       folder: SHARED,
       file: 'gable-support-77x127.glb',
-      defaultScale: 0.001,
+      initialAxisScale: gableSupportScale,
+      registry: GABLE_SUPPORT_REG,
+      axisLabels: gableSupportLabels,
       modelRotation: { x: 0, y: Math.PI, z: 0 },
-      getDefaultPosition: ({ specs: s, firstLineZ }) => ({
+      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
         x: s.gableSupportPositions[0] ?? -2.5,
-        y: 0,
+        y: baseplateTop,
         z: firstLineZ,
+        rx: Math.PI / 2,
+        ry: Math.PI / 2,
       }),
     },
   ]
@@ -149,12 +210,25 @@ function getVariantParts(specs: TentSpecs, tentType: TentType, variant: TentVari
   const parts: GLBOption[] = []
 
   // Upright — per-variant because profile cross-section is baked into GLB geometry
+  const scaleCtx: ScaleContext = {
+    profiles: specs.profiles,
+    bayDistance: specs.bayDistance,
+    eaveHeight: specs.eaveHeight,
+    tentWidth: specs.width,
+    halfWidth: specs.halfWidth,
+  }
+  const uprightScale = computePartScale(UPRIGHT_REG, scaleCtx)
+  const uprightLabels = getAxisLabels(UPRIGHT_REG, scaleCtx)
+
   parts.push({
     id: 'upright',
     label: `Upright ${variant} (${specs.profiles.upright.width * 1000}x${specs.profiles.upright.height * 1000})`,
     folder: framePath,
     file: 'upright.glb',
     defaultScale: 0.001,
+    initialAxisScale: uprightScale,
+    registry: UPRIGHT_REG,
+    axisLabels: uprightLabels,
     // -PI/2 on X converts the GLB's Z-up orientation to Babylon Y-up
     modelRotation: { x: -Math.PI / 2, y: 0, z: 0 },
     getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({

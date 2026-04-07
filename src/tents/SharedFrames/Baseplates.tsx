@@ -1,7 +1,7 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3 } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 
@@ -12,32 +12,6 @@ interface BaseplatesProps {
 	onLoadStateChange?: (loading: boolean) => void
 }
 
-/** Cached bounds result to avoid repeated computeWorldMatrix calls (#14). */
-interface BoundsResult { min: Vector3; max: Vector3; size: Vector3 }
-const boundsCache = new Map<string, BoundsResult>()
-
-
-function measureWorldBounds(meshes: Mesh[], cacheKey?: string): BoundsResult {
-	if (cacheKey) {
-		const cached = boundsCache.get(cacheKey)
-		if (cached) return cached
-	}
-	let min = new Vector3(Infinity, Infinity, Infinity)
-	let max = new Vector3(-Infinity, -Infinity, -Infinity)
-	for (const m of meshes) {
-		if (m.getTotalVertices() > 0) {
-			m.computeWorldMatrix(true)
-			m.refreshBoundingInfo()
-			m.getBoundingInfo().update(m.getWorldMatrix())
-			const bb = m.getBoundingInfo().boundingBox
-			min = Vector3.Minimize(min, bb.minimumWorld)
-			max = Vector3.Maximize(max, bb.maximumWorld)
-		}
-	}
-	const result = { min, max, size: max.subtract(min) }
-	if (cacheKey) boundsCache.set(cacheKey, result)
-	return result
-}
 
 /**
  * Baseplates — loads basePlates.glb, builds a correctly scaled template,
@@ -60,7 +34,7 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 		abortRef.current = controller
 
 		// Clear stale bounds from previous loads
-		boundsCache.clear()
+		clearBoundsCache()
 
 		const root = new TransformNode('baseplates-root', scene)
 		const allDisposables: (Mesh | TransformNode)[] = [root]

@@ -39,6 +39,14 @@ import { generateRichCode, generateRichJSON, type CodeExportContext } from './co
 import { getGLBParts } from './catalogue'
 import type { TentType, TentVariant } from '@/lib/constants/assetPaths'
 import type { AlignSpecs } from './hooks/usePartTransform'
+import {
+  type ScaleContext,
+  type AxisRole,
+  computePartScale,
+  getAxisLabels,
+  hasProfileAxes,
+  UPRIGHT_CONNECTOR_REG,
+} from '@/lib/constants/glbRegistry'
 
 import { useUndoRedo } from './hooks/useUndoRedo'
 import { useCameraLock } from './hooks/useCameraLock'
@@ -133,6 +141,10 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
   const [gizmoSize, setGizmoSize] = useState(3)
   const [lockScale, setLockScale] = useState(true)
   const [restoringConfig, setRestoringConfig] = useState<string | null>(null)
+  const [swapProfileWH, setSwapProfileWH] = useState(false)
+  const [showMapping, setShowMapping] = useState(false)
+  /** Per-axis target overrides — when user reassigns an axis via the mapping UI */
+  const [axisOverrides, setAxisOverrides] = useState<Record<'x' | 'y' | 'z', AxisRole | null>>({ x: null, y: null, z: null })
 
   // Pending saved config to apply after part loads (replaces unreliable 500ms timeout)
   const pendingConfigRef = useRef<SavedConfig | null>(null)
@@ -549,6 +561,85 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
     [partLoader.axisScale, lockScale, applyAxisScaleAll]
   )
 
+  // ── Profile W↔H swap handler ───────────────────────────────────────────
+  const handleSwapProfileWH = useCallback(() => {
+    const glb = parts[selectedPart]
+    if (!glb.registry || !hasProfileAxes(glb.registry)) return
+
+    const nextSwap = !swapProfileWH
+    setSwapProfileWH(nextSwap)
+
+    const scaleCtx: ScaleContext = {
+      profiles: specs.profiles,
+      bayDistance: specs.bayDistance,
+      eaveHeight: specs.eaveHeight,
+      tentWidth: specs.width,
+      halfWidth: specs.halfWidth,
+    }
+    const plateCtx = glb.registry === UPRIGHT_CONNECTOR_REG && specs.connectorPlate
+      ? { depth: specs.connectorPlate.depth, height: specs.connectorPlate.height, length: specs.connectorPlate.length }
+      : undefined
+
+    const newScale = computePartScale(glb.registry, scaleCtx, plateCtx, nextSwap)
+    applyAxisScaleAll(newScale)
+  }, [parts, selectedPart, swapProfileWH, specs, applyAxisScaleAll])
+
+  // ── Axis role mapping handler ───────────────────────────────────────────
+  /** Recompute scale for a single axis when the user changes its role via dropdown */
+  const handleAxisTargetChange = useCallback(
+    (axis: 'x' | 'y' | 'z', targetKey: string) => {
+      const rawExtents = partLoader.rawExtents
+      if (!rawExtents) return
+
+      const raw = rawExtents[axis]
+      if (raw <= 0) return
+
+      let newRole: AxisRole
+      let scaleValue: number
+
+      switch (targetKey) {
+        case 'profileWidth':
+        case 'profileHeight': {
+          const glb = parts[selectedPart]
+          const pk = glb.registry?.profileKey
+          if (!pk) return
+          scaleValue = targetKey === 'profileWidth'
+            ? specs.profiles[pk].width / raw
+            : specs.profiles[pk].height / raw
+          newRole = { type: targetKey }
+          break
+        }
+        case 'bayDistance':
+          scaleValue = specs.bayDistance / raw
+          newRole = { type: 'length', source: 'bayDistance' }
+          break
+        case 'eaveHeight':
+          scaleValue = specs.eaveHeight / raw
+          newRole = { type: 'length', source: 'eaveHeight' }
+          break
+        case 'tentWidth':
+          scaleValue = specs.width / raw
+          newRole = { type: 'length', source: 'tentWidth' }
+          break
+        case 'halfWidth':
+          scaleValue = specs.halfWidth / raw
+          newRole = { type: 'length', source: 'halfWidth' }
+          break
+        case 'base':
+          scaleValue = 0.001
+          newRole = { type: 'base' }
+          break
+        default:
+          return
+      }
+
+      setAxisOverrides((prev) => ({ ...prev, [axis]: newRole }))
+      const newScale = { ...partLoader.axisScale, [axis]: scaleValue }
+      applyAxisScaleAll(newScale)
+    },
+    [partLoader.rawExtents, partLoader.axisScale, parts, selectedPart, specs, applyAxisScaleAll],
+  )
+
   // ── Copy / Export ──────────────────────────────────────────────────────
   const handleCopy = useCallback(
     async (asCode: boolean) => {
@@ -664,6 +755,8 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
           transformCacheRef.current.set(selectedPart, partTransformHook.readTransform())
           scaleCacheRef.current.set(selectedPart, { ...partLoader.axisScale })
           setSelectedPart(+e.target.value)
+          setSwapProfileWH(false)
+          setAxisOverrides({ x: null, y: null, z: null })
         }}
         aria-label="Select part"
       >
@@ -682,12 +775,121 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
         </div>
       )}
 
-      {/* Dimensions + scale */}
+      {/* Dimensions + profile info */}
       {partLoader.dimensions.w > 0 && (
         <div className={styles.dimensions}>
           {partLoader.dimensions.w.toFixed(3)} x {partLoader.dimensions.h.toFixed(3)} x{' '}
           {partLoader.dimensions.d.toFixed(3)} m
+          {parts[selectedPart].registry?.profileKey && (
+            <>
+              <span className={styles.profileBadge}>
+                Profile: {parts[selectedPart].registry!.profileKey}
+                {' ('}
+                {specs.profiles[parts[selectedPart].registry!.profileKey!].width * 1000}
+                x
+                {specs.profiles[parts[selectedPart].registry!.profileKey!].height * 1000}
+                mm)
+              </span>
+              {hasProfileAxes(parts[selectedPart].registry!) && (
+                <button
+                  className={`${styles.stepBtn} ${swapProfileWH ? styles.stepBtnActive : ''}`}
+                  onClick={handleSwapProfileWH}
+                  title="Swap profile width/height mapping on cross-section axes"
+                  style={{ marginLeft: 4, fontSize: 9 }}
+                >
+                  Swap W/H
+                </button>
+              )}
+            </>
+          )}
         </div>
+      )}
+
+      {/* Axis Mapping — shows raw extents and lets user reassign targets */}
+      {partLoader.rawExtents && parts[selectedPart].registry && (
+        <>
+          <div className={styles.row}>
+            <span className={styles.miniLabel}>Mapping</span>
+            <button
+              className={`${styles.stepBtn} ${showMapping ? styles.stepBtnActive : ''}`}
+              onClick={() => setShowMapping(!showMapping)}
+              title="Show per-axis role mapping and profile info"
+            >
+              {showMapping ? 'Hide' : 'Show'}
+            </button>
+          </div>
+          {showMapping && (
+            <div className={styles.mappingPanel}>
+              {/* Nominal profile info if available */}
+              {parts[selectedPart].registry?.nominalProfile && (
+                <div className={styles.mappingNote}>
+                  Nominal: {(parts[selectedPart].registry!.nominalProfile!.width * 1000).toFixed(0)}
+                  ×{(parts[selectedPart].registry!.nominalProfile!.height * 1000).toFixed(0)}mm
+                  {parts[selectedPart].registry!.profileKey && (
+                    <> → Target: {(specs.profiles[parts[selectedPart].registry!.profileKey!].width * 1000).toFixed(0)}
+                    ×{(specs.profiles[parts[selectedPart].registry!.profileKey!].height * 1000).toFixed(0)}mm</>
+                  )}
+                </div>
+              )}
+              <div className={styles.mappingHeader}>
+                <span>Axis</span><span>Raw</span><span>Role</span><span>World</span>
+              </div>
+              {(['x', 'y', 'z'] as const).map((axis) => {
+                const raw = partLoader.rawExtents![axis]
+                const scale = partLoader.axisScale[axis]
+                const world = raw * scale
+                const glb = parts[selectedPart]
+                const reg = glb.registry!
+                const regAxis = reg.axes[axis]
+                const override = axisOverrides[axis]
+                const currentRole = override ?? regAxis.role
+
+                // Determine the dropdown value from the current role
+                let selectValue = 'base'
+                if (currentRole.type === 'profileWidth') selectValue = 'profileWidth'
+                else if (currentRole.type === 'profileHeight') selectValue = 'profileHeight'
+                else if (currentRole.type === 'length') selectValue = currentRole.source
+                else if (currentRole.type === 'fixed') selectValue = 'fixed'
+                else if (currentRole.type === 'base') selectValue = 'base'
+
+                return (
+                  <div key={axis} className={styles.mappingRow}>
+                    <span className={styles.mappingAxis}>{axis.toUpperCase()}</span>
+                    <span className={styles.mappingRaw}>{raw.toFixed(1)}</span>
+                    <select
+                      className={styles.mappingSelect}
+                      value={selectValue}
+                      onChange={(e) => handleAxisTargetChange(axis, e.target.value)}
+                    >
+                      {reg.profileKey && (
+                        <>
+                          <option value="profileWidth">
+                            Profile W ({specs.profiles[reg.profileKey].width * 1000}mm)
+                          </option>
+                          <option value="profileHeight">
+                            Profile H ({specs.profiles[reg.profileKey].height * 1000}mm)
+                          </option>
+                        </>
+                      )}
+                      <option value="bayDistance">Bay ({specs.bayDistance}m)</option>
+                      <option value="eaveHeight">Eave ({specs.eaveHeight}m)</option>
+                      <option value="tentWidth">Width ({specs.width}m)</option>
+                      <option value="halfWidth">Half ({specs.halfWidth}m)</option>
+                      <option value="base">mm→m (0.001)</option>
+                      {currentRole.type === 'fixed' && (
+                        <option value="fixed">Fixed ({scale.toFixed(6)})</option>
+                      )}
+                    </select>
+                    <span className={styles.mappingWorld}>{world < 0.01 ? (world * 1000).toFixed(1) + 'mm' : world.toFixed(3) + 'm'}</span>
+                  </div>
+                )
+              })}
+              <div className={styles.mappingNote}>
+                Raw = GLB mesh extents (pre-scale). Changing role recomputes scale for that axis.
+              </div>
+            </div>
+          )}
+        </>
       )}
 
       {/* Per-axis scale controls */}
@@ -702,27 +904,45 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
         </button>
       </div>
       {(['x', 'y', 'z'] as const).map((axis) => (
-        <div key={axis} className={styles.row}>
-          <span className={styles.miniLabel} style={{ width: 14, textAlign: 'center', textTransform: 'uppercase' }}>{axis}</span>
-          <input
-            type="range"
-            min={LOG_MIN}
-            max={LOG_MAX}
-            step={LOG_STEP}
-            className={styles.slider}
-            value={scaleToLog(partLoader.axisScale[axis])}
-            onChange={(e) => handleAxisScaleChange(axis, logToScale(+e.target.value))}
-          />
-          <input
-            type="number"
-            min={MIN_SCALE}
-            max={MAX_SCALE}
-            step={dynamicStep(partLoader.axisScale[axis])}
-            className={styles.numberInput}
-            style={{ width: 56 }}
-            value={partLoader.axisScale[axis]}
-            onChange={(e) => handleAxisScaleChange(axis, +e.target.value || MIN_SCALE)}
-          />
+        <div key={axis}>
+          <div className={styles.row}>
+            <span className={styles.miniLabel} style={{ width: 14, textAlign: 'center', textTransform: 'uppercase' }}>{axis}</span>
+            <input
+              type="range"
+              min={LOG_MIN}
+              max={LOG_MAX}
+              step={LOG_STEP}
+              className={styles.slider}
+              value={scaleToLog(partLoader.axisScale[axis])}
+              onChange={(e) => handleAxisScaleChange(axis, logToScale(+e.target.value))}
+            />
+            <input
+              type="number"
+              min={MIN_SCALE}
+              max={MAX_SCALE}
+              step={dynamicStep(partLoader.axisScale[axis])}
+              className={styles.numberInput}
+              style={{ width: 56 }}
+              value={partLoader.axisScale[axis]}
+              onChange={(e) => handleAxisScaleChange(axis, +e.target.value || MIN_SCALE)}
+            />
+          </div>
+          {(() => {
+            const glb = parts[selectedPart]
+            if (!glb.registry || !glb.axisLabels) return null
+            const label = swapProfileWH && hasProfileAxes(glb.registry)
+              ? getAxisLabels(glb.registry, {
+                  profiles: specs.profiles,
+                  bayDistance: specs.bayDistance,
+                  eaveHeight: specs.eaveHeight,
+                  tentWidth: specs.width,
+                  halfWidth: specs.halfWidth,
+                }, undefined, true)[axis]
+              : glb.axisLabels[axis]
+            return label && label !== 'uniform' ? (
+              <div className={styles.profileHint}>{label}</div>
+            ) : null
+          })()}
         </div>
       ))}
 

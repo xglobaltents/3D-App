@@ -4,36 +4,22 @@ import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/cor
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
+import { EAVE_SIDE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 
 // ═════════════════════════════════════════════════════════════
-// Part:  Eave Side Beam (127×76 profile)
+// Part:  Eave Side Beam (profile from specs)
 // GLB:   /tents/SharedFrames/eave-side-beam.glb
-// PDF:   Profile 04 — Eave Beam
+// Registry: EAVE_SIDE_BEAM_REG (centralized RAW extents + axis mapping)
 //
-// PartBuilder export (15m tent, bayDistance=5m):
-//   Scale:  (0.0001479, 0.0001479, 0.1274)
-//   Dims:   0.176 × 0.155 × 6.370 m
-//   Pos:    X = halfWidth + 0.31, Y = baseplateTop + eaveHeight - 0.1
-//   Rot:    Roll = -PI
-//
-// Axis mapping:
-//   X,Y = cross-section (FIXED per GLB — 0.0001479 converts this GLB's units to meters)
+// Axis mapping (from registry):
+//   X,Y = cross-section (FIXED per GLB)
 //   Z   = beam length (PARAMETRIC — scales with bayDistance)
-//
-// Length ratio: 0.1274 scale → 6.370m beam → 0.02 scale per meter
-// So: Z_scale = 0.02 × bayDistance
 //
 // Pattern A: bay-to-bay × 2 sides
 // ═════════════════════════════════════════════════════════════
 
 const FOLDER = '/tents/SharedFrames/'
 const FILE = 'eave-side-beam.glb'
-
-// Cross-section scale — FIXED for this GLB (empirically calibrated in PartBuilder)
-const PROFILE_SCALE = 0.0001479
-
-// Length scale ratio — derived from export: 0.1274 / 6.370 = 0.02 per meter
-const Z_SCALE_PER_METER = 0.1274 / 6.370
 
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 const PART_ROT_LEFT = Quaternion.FromEulerAngles(0, 0, -Math.PI)
@@ -95,18 +81,23 @@ export const EaveSideBeams: FC<EaveSideBeamsProps> = memo(({
           meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
         }
 
-        // ── Model scale: cross-section fixed, length parametric ──
-        const modelScale = new Vector3(
-          PROFILE_SCALE,                        // cross-section (fixed)
-          PROFILE_SCALE,                        // cross-section (fixed)
-          Z_SCALE_PER_METER * specs.bayDistance  // beam length = bay distance
-        )
+        // ── Model scale from centralized registry ──
+        const regScale = computePartScale(EAVE_SIDE_BEAM_REG, {
+          profiles: specs.profiles,
+          bayDistance: specs.bayDistance,
+          eaveHeight: specs.eaveHeight,
+          tentWidth: specs.width,
+          halfWidth: specs.halfWidth,
+        })
+        const modelScale = new Vector3(regScale.x, regScale.y, regScale.z)
         const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
 
         // ── Placement: Pattern A — one per bay span × 2 sides ──
         const baseplateTop = specs.baseplate?.height ?? 0
-        const eaveY = baseplateTop + specs.eaveHeight - 0.1
-        const xOffset = specs.halfWidth + 0.31
+        // Beam center sits half a beam profile below eave top
+        const eaveY = baseplateTop + specs.eaveHeight - specs.profiles.eaveBeam.height / 2
+        // Beam sits outside upright: halfWidth + upright depth + beam depth
+        const xOffset = specs.halfWidth + specs.profiles.upright.height + specs.profiles.eaveBeam.height
         const halfLength = (numBays * specs.bayDistance) / 2
 
         const partMatrices: Matrix[] = []

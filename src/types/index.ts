@@ -72,9 +72,13 @@ export interface ConnectorPlateSpecs {
 
 export interface TentComponentProps {
   numBays: number
+  specs: TentSpecs
   showFrame?: boolean
   showCovers?: boolean
   position?: Vector3
+  onLoadStateChange?: (loading: boolean) => void
+  /** When true, PartBuilder is active and some parts may be hidden. */
+  builderMode?: boolean
 }
 
 export interface FrameComponentProps {

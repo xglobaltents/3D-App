@@ -4,6 +4,7 @@ import { Mesh, TransformNode, Vector3, Quaternion, Matrix } from '@babylonjs/cor
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
+import { UPRIGHT_CONNECTOR_REG, computePartScale } from '@/lib/constants/glbRegistry'
 
 interface UprightConnectorsProps {
 	numBays: number
@@ -18,11 +19,11 @@ const CONNECTOR_GLB = 'upright-connector-r.glb'
 /**
  * Connector placement — fully dynamic from specs.connectorPlate + upright profile + rafter slope.
  *
- * Scaling is computed dynamically from GLB raw bounds → specs.connectorPlate dimensions.
+ * Scaling uses centralized RAW constants from UPRIGHT_CONNECTOR_REG.
  * Raw GLB axes → target specs mapping:
- *   GLB X → connectorPlate.depth  (0.112m for 15m/20m)
- *   GLB Y → connectorPlate.height (0.212m for 15m/20m)
- *   GLB Z → connectorPlate.length (0.424m for 15m/20m)
+ *   GLB X → connectorPlate.depth  (raw 315.7)
+ *   GLB Y → connectorPlate.height (raw 577.2)
+ *   GLB Z → connectorPlate.length (raw 196.0)
  *
  * Position offsets:
  *   X inset:   uprightWidth / 2  (connector starts at upright's inner edge)
@@ -30,21 +31,11 @@ const CONNECTOR_GLB = 'upright-connector-r.glb'
  *   Roll:      atan(slope × connectorPlate.depth / connectorPlate.length)
  */
 
-/** Measure combined AABB of geometry meshes, returning min corner and size. */
-function measureRawBoundsMinMax(meshes: Mesh[]): { min: Vector3; size: Vector3 } {
-	let min = new Vector3(Infinity, Infinity, Infinity)
-	let max = new Vector3(-Infinity, -Infinity, -Infinity)
-	for (const m of meshes) {
-		if (m.getTotalVertices() > 0) {
-			m.computeWorldMatrix(true)
-			m.refreshBoundingInfo()
-			const bb = m.getBoundingInfo().boundingBox
-			min = Vector3.Minimize(min, bb.minimumWorld)
-			max = Vector3.Maximize(max, bb.maximumWorld)
-		}
-	}
-	return { min, size: max.subtract(min) }
-}
+// RAW origin Y offset from registry (in mm, convert to m by dividing by 1000)
+const RAW_ORIGIN_Y_OFFSET = UPRIGHT_CONNECTOR_REG.rawOriginOffsetY ?? 0
+
+// Standard GLTF handedness rotation (Y=PI) — constant, never read from __root__
+const GLTF_ROTATION = Quaternion.FromEulerAngles(0, Math.PI, 0)
 
 /**
  * UprightConnectors — loads the connector GLB and places thin instances
@@ -85,8 +76,7 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						return
 					}
 
-					// ── 1. Separate __root__ from geometry meshes ────────────
-					const rootMesh = loaded.find((m) => m.name === '__root__')
+					// ── 1. Filter geometry meshes ─────────────────────────
 					const templateMeshes = loaded.filter(
 						(m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0,
 					)
@@ -98,21 +88,9 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 						return
 					}
 
-					// ── 2. Read __root__ transform BEFORE disposing it ───────
-					let gltfRotation: Quaternion
-					if (rootMesh?.rotationQuaternion) {
-						gltfRotation = rootMesh.rotationQuaternion.clone()
-					} else if (rootMesh) {
-						gltfRotation = Quaternion.FromEulerAngles(
-							rootMesh.rotation.x,
-							rootMesh.rotation.y,
-							rootMesh.rotation.z,
-						)
-					} else {
-						// Fallback: standard GLTF right→left handedness
-						gltfRotation = Quaternion.FromEulerAngles(0, Math.PI, 0)
-						console.warn('[UprightConnectors] No __root__ found — using Y=PI fallback')
-					}
+					// ── 2. Use constant GLTF handedness rotation ──────────
+					// Per Rule 10: never read __root__ — use known constant
+					const gltfRotation = GLTF_ROTATION
 
 					// ── 3. Capture each mesh's LOCAL transform before zeroing ─
 					const meshLocalMatrices = new Map<Mesh, Matrix>()
@@ -140,22 +118,24 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 
 					stripAndApplyMaterial(templateMeshes, connectorMat)
 
-					// ── 5. Build model matrix from raw bounds → specs ─────────
+					// ── 5. Build model matrix from registry constants ───────
 					const plate = specs.connectorPlate
 						?? { length: 0.424, height: 0.212, depth: 0.112 }
-					const rawBounds = measureRawBoundsMinMax(templateMeshes)
-					const rawSize = rawBounds.size
 
-					const scaleX = rawSize.x > 0 ? plate.depth / rawSize.x : 1
-					const scaleY = rawSize.y > 0 ? plate.height / rawSize.y : 1
-					const scaleZ = rawSize.z > 0 ? plate.length / rawSize.z : 1
-					const modelScale = new Vector3(scaleX, scaleY, scaleZ)
+					// Use centralized registry instead of runtime bounds measurement
+					const regScale = computePartScale(UPRIGHT_CONNECTOR_REG, {
+						profiles: specs.profiles,
+						bayDistance: specs.bayDistance,
+						eaveHeight: specs.eaveHeight,
+						tentWidth: specs.width,
+						halfWidth: specs.halfWidth,
+					}, { depth: plate.depth, height: plate.height, length: plate.length })
+					const modelScale = new Vector3(regScale.x, regScale.y, regScale.z)
 
-					console.log('[UprightConnectors] rawSize:', rawSize.toString(), 'scale:', modelScale.toString(), 'target plate:', plate.depth, plate.height, plate.length, 'rawMin:', rawBounds.min.toString())
 					const modelMatrix = Matrix.Compose(modelScale, gltfRotation, Vector3.Zero())
 
-					// GLB origin Y offset → world offset after scaling
-					const originYOffsetWorld = rawBounds.min.y * scaleY
+					// GLB origin Y offset: raw value × scale = world offset
+					const originYOffsetWorld = RAW_ORIGIN_Y_OFFSET * regScale.y
 
 					// ── 6. Placement — dynamic from upright profile + slope ───
 					const baseplateTop = specs.baseplate?.height ?? 0

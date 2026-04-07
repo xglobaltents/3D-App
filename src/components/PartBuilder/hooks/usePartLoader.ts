@@ -28,6 +28,8 @@ export interface UsePartLoaderReturn {
   loading: boolean
   axisScale: AxisScale
   dimensions: { w: number; h: number; d: number }
+  /** Raw (pre-scale) bounding box extents of the loaded GLB mesh. */
+  rawExtents: AxisScale | null
   showBoundingBox: boolean
 
   setAxisScale: (scale: AxisScale) => void
@@ -54,6 +56,7 @@ export function usePartLoader(
   const [loading, setLoading] = useState(false)
   const [axisScale, setAxisScale] = useState<AxisScale>({ ...DEFAULT_SCALE })
   const [dimensions, setDimensions] = useState({ w: 0, h: 0, d: 0 })
+  const [rawExtents, setRawExtents] = useState<AxisScale | null>(null)
   const [showBoundingBox, setShowBoundingBox] = useState(true)
   // Reusable bounding box material to prevent leak on every update
   const bbMatRef = useRef<StandardMaterial | null>(null)
@@ -207,13 +210,38 @@ export function usePartLoader(
           if (!meshes.includes(m as Mesh)) safeDispose(m)
         }
 
+        // ── Measure raw (pre-scale) bounding box extents ──────────────────
+        // This is the actual mesh size in GLB native units, before any scaling.
+        {
+          let bbMin = new Vector3(Infinity, Infinity, Infinity)
+          let bbMax = new Vector3(-Infinity, -Infinity, -Infinity)
+          for (const mesh of meshes) {
+            mesh.refreshBoundingInfo()
+            const bi = mesh.getBoundingInfo()
+            bbMin = Vector3.Minimize(bbMin, bi.boundingBox.minimum)
+            bbMax = Vector3.Maximize(bbMax, bi.boundingBox.maximum)
+          }
+          const rawSize = bbMax.subtract(bbMin)
+          setRawExtents({
+            x: roundTo4(rawSize.x),
+            y: roundTo4(rawSize.y),
+            z: roundTo4(rawSize.z),
+          })
+        }
+
         // Determine model scale:
-        // If the catalogue entry provides an explicit defaultScale (e.g. 0.001 for mm-exported GLBs)
-        // use it directly via proper assignment to trigger Babylon's dirty flag.
-        // Otherwise fall back to auto-detect from bounding box extents.
-        let resolvedScale: number
-        if (glb.defaultScale != null) {
-          resolvedScale = glb.defaultScale
+        // 1. If catalogue provides initialAxisScale (profile-derived per-axis), use it.
+        // 2. Else if catalogue provides defaultScale (uniform mm→m), use it.
+        // 3. Otherwise fall back to auto-detect from bounding box extents.
+        let sx: number, sy: number, sz: number
+
+        if (glb.initialAxisScale) {
+          // Profile-aware per-axis scale from registry
+          sx = glb.initialAxisScale.x
+          sy = glb.initialAxisScale.y
+          sz = glb.initialAxisScale.z
+        } else if (glb.defaultScale != null) {
+          sx = sy = sz = glb.defaultScale
         } else {
           // Compute local-space extents to determine auto-scale
           let bbMin = new Vector3(Infinity, Infinity, Infinity)
@@ -226,17 +254,18 @@ export function usePartLoader(
           }
           const extent = bbMax.subtract(bbMin)
           const maxExtent = Math.max(extent.x, extent.y, extent.z)
-          resolvedScale = maxExtent > 5 ? 1 / maxExtent : 1
+          const autoScale = maxExtent > 5 ? 1 / maxExtent : 1
+          sx = sy = sz = autoScale
         }
 
         // Use Vector3 constructor assignment — goes through Babylon's property setter
         // and properly marks the node dirty so world matrix recomputes.
-        modelNode.scaling = new Vector3(resolvedScale, resolvedScale, resolvedScale)
+        modelNode.scaling = new Vector3(sx, sy, sz)
 
         const s = {
-          x: roundTo4(resolvedScale),
-          y: roundTo4(resolvedScale),
-          z: roundTo4(resolvedScale),
+          x: roundTo4(sx),
+          y: roundTo4(sy),
+          z: roundTo4(sz),
         }
         setAxisScale(s)
 
@@ -257,6 +286,7 @@ export function usePartLoader(
     loading,
     axisScale,
     dimensions,
+    rawExtents,
     showBoundingBox,
     setAxisScale,
     setShowBoundingBox,

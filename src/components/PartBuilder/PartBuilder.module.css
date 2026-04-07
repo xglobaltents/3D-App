@@ -105,6 +105,101 @@
   font-family: monospace;
 }
 
+.profileBadge {
+  display: inline-block;
+  margin-top: 4px;
+  padding: 2px 6px;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 4px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
+.profileHint {
+  font-size: 9px;
+  color: var(--text-secondary);
+  opacity: 0.7;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 100%;
+  margin-top: 1px;
+}
+
+/* ── Axis Mapping Panel ──────────────────────────────────────────────────── */
+
+.mappingPanel {
+  margin-bottom: 8px;
+  padding: 8px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  font-size: 10px;
+  font-family: monospace;
+}
+
+.mappingHeader {
+  display: grid;
+  grid-template-columns: 24px 52px 1fr 52px;
+  gap: 4px;
+  margin-bottom: 4px;
+  color: var(--text-tertiary);
+  font-size: 9px;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+
+.mappingRow {
+  display: grid;
+  grid-template-columns: 24px 52px 1fr 52px;
+  gap: 4px;
+  align-items: center;
+  margin-bottom: 3px;
+}
+
+.mappingAxis {
+  font-weight: 700;
+  color: var(--text-primary);
+  text-align: center;
+}
+
+.mappingRaw {
+  color: var(--text-secondary);
+  text-align: right;
+  font-size: 10px;
+}
+
+.mappingSelect {
+  padding: 3px 4px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  font-size: 10px;
+  font-family: monospace;
+  cursor: pointer;
+  outline: none;
+}
+
+.mappingSelect:hover {
+  border-color: var(--border-hover);
+}
+
+.mappingWorld {
+  color: var(--text-secondary);
+  text-align: right;
+  font-size: 10px;
+}
+
+.mappingNote {
+  margin-top: 4px;
+  font-size: 9px;
+  color: var(--text-tertiary);
+  line-height: 1.3;
+}
+
 /* ── Row / Layout ────────────────────────────────────────────────────────── */
 
 .row {

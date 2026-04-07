@@ -1,6 +1,7 @@
-import type { TentSpecs } from '@/types'
+import type { TentSpecs, TentComponentProps } from '@/types'
+import type { FC } from 'react'
 
-// ─── Variant descriptor ──────────────────────────────────────────────────────
+// ─── Variant descriptor ──────────────────────────────────────────────────────────────────
 
 export interface TentVariantInfo {
   /** Display label for the UI */
@@ -16,6 +17,8 @@ export interface TentVariantInfo {
   specs: TentSpecs
   /** Whether this tent type has frame components implemented */
   available: boolean
+  /** Composition component for this variant (renders frame + covers) */
+  component?: FC<TentComponentProps>
 }
 
 // ─── Tent type metadata ──────────────────────────────────────────────────────
@@ -33,23 +36,28 @@ export interface TentTypeInfo {
 import { TENT_SPECS as PAT_15m } from '@/tents/PremiumArchTent/15m/specs'
 import { TENT_SPECS as PAT_15mHigh } from '@/tents/PremiumArchTent/15m-high/specs'
 import { TENT_SPECS as PAT_20m } from '@/tents/PremiumArchTent/20m/specs'
+import { PremiumArchTent15m } from '@/tents/PremiumArchTent/15m/index'
+import { PremiumArchTent15mHigh } from '@/tents/PremiumArchTent/15m-high/index'
+import { PremiumArchTent20m } from '@/tents/PremiumArchTent/20m/index'
 
 // Other tent types (stubs — available: false)
 import { TENT_SPECS as REV_15m } from '@/tents/RevolutionTent/15m/specs'
 
 // Polygon & Pyramid tents don't have full TentSpecs yet — use placeholders
-const STUB_PROFILE = { width: 0, height: 0 }
-const STUB_SPECS: TentSpecs = {
+const STUB_PROFILE = Object.freeze({ width: 0, height: 0 })
+const STUB_SPECS: TentSpecs = Object.freeze({
   name: '', width: 0, halfWidth: 0, eaveHeight: 0, ridgeHeight: 0,
   bayDistance: 5, archOuterSpan: 0,
-  profiles: {
+  profiles: Object.freeze({
     upright: STUB_PROFILE, rafter: STUB_PROFILE, gableColumn: STUB_PROFILE,
     eaveBeam: STUB_PROFILE, gableBeam: STUB_PROFILE, mainPurlin: STUB_PROFILE,
     intermediatePurlin: STUB_PROFILE,
-  },
-  baseplate: { width: 0, height: 0, depth: 0 },
-  gableSupportPositions: [], mainPurlinX: [], intermediatePurlinX: [],
-}
+  }),
+  baseplate: Object.freeze({ width: 0, height: 0, depth: 0, thickness: 0 }),
+  gableSupportPositions: Object.freeze([]) as unknown as number[],
+  mainPurlinX: Object.freeze([]) as unknown as number[],
+  intermediatePurlinX: Object.freeze([]) as unknown as number[],
+})
 
 // ─── Registry ────────────────────────────────────────────────────────────────
 
@@ -68,6 +76,7 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         eaveLabel: '3.20m (Standard)',
         specs: PAT_15m,
         available: true,
+        component: PremiumArchTent15m,
       },
       {
         label: 'Premium Arch Tent 15m (High Eave)',
@@ -78,6 +87,7 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         eaveLabel: '4.26m (High)',
         specs: PAT_15mHigh,
         available: true,
+        component: PremiumArchTent15mHigh,
       },
       {
         label: 'Premium Arch Tent 20m',
@@ -87,6 +97,7 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         widthLabel: '20m',
         specs: PAT_20m,
         available: true,
+        component: PremiumArchTent20m,
       },
       // Future: 25m, 30m, etc. — add here with same pattern
     ],
