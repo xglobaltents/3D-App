@@ -4,20 +4,25 @@ import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/cor
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
-import { GABLE_SUPPORT_REG, computePartScale } from '@/lib/constants/glbRegistry'
 
 // ═════════════════════════════════════════════════════════════
-// Part:  Gable Support (profile from specs)
-// GLB:   /tents/SharedFrames/gable-support-77x127.glb
-// Registry: GABLE_SUPPORT_REG (centralized RAW extents + axis mapping)
+// Part:  Gable Support (127×76 profile, gable-support-77x127.glb)
 //
-// Axis mapping (from registry):
-//   X = cross-section (FIXED)
-//   Y = column HEIGHT (PARAMETRIC with eaveHeight)
-//   Z = cross-section depth (FIXED)
+// PartBuilder-calibrated constants (bypass registry — internal GLTF
+// mesh rotations make raw bounding-box extents unusable for scaling).
 //
-// Pattern D: gable positions × front + back, count = positions.length × 2
+// Cross-section (X & Y): uniform scale preserves profile shape.
+//   Correction ratio adapts to different target profiles.
+// Length / height (Z): extrusion axis — each instance scaled to
+//   reach from baseplateTop to the arch centerline at its X position.
+//
+// Pattern D: gable positions × front + back
 // ═════════════════════════════════════════════════════════════
+
+// From PartBuilder calibration (gable-support-77x127.glb)
+const CROSS_SCALE_BASE = 0.0003428     // uniform X & Y at 127mm nominal
+const CALIBRATED_PROFILE_W = 0.127     // 127mm — the GLB's designed-for profile width
+const Z_SCALE_PER_METER = 0.1641 / 3.2 // calibrated at eaveHeight = 3.2m
 
 const FOLDER = '/tents/SharedFrames/'
 const FILE = 'gable-support-77x127.glb'
@@ -82,38 +87,43 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
           meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
         }
 
-        // ── Model scale from centralized registry ──
-        const regScale = computePartScale(GABLE_SUPPORT_REG, {
-          profiles: specs.profiles,
-          bayDistance: specs.bayDistance,
-          eaveHeight: specs.eaveHeight,
-          tentWidth: specs.width,
-          halfWidth: specs.halfWidth,
-        })
-        const modelScale = new Vector3(regScale.x, regScale.y, regScale.z)
-        const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
+        // ── Model scale: PartBuilder-calibrated constants ──
+        const correction = specs.profiles.gableColumn.width / CALIBRATED_PROFILE_W
+        const crossScale = CROSS_SCALE_BASE * correction // X = Y
 
-        // ── Placement: Pattern D — gable positions × front + back ──
         const baseplateTop = specs.baseplate?.height ?? 0
         const halfLength = (numBays * specs.bayDistance) / 2
+        const archFn = specs.getArchHeightAtEave
 
-        const partMatrices: Matrix[] = []
+        // Build per-instance matrices (Z scale varies with arch height)
+        interface InstanceDef { modelMatrix: Matrix; partMatrix: Matrix }
+        const instances: InstanceDef[] = []
+
         for (const gz of [-halfLength, halfLength]) {
           for (const gx of specs.gableSupportPositions) {
-            partMatrices.push(Matrix.Compose(
+            const topY = archFn ? archFn(gx) : specs.eaveHeight
+            const supportHeight = topY - baseplateTop
+            const scaleZ = Z_SCALE_PER_METER * supportHeight
+
+            const modelScale = new Vector3(crossScale, crossScale, scaleZ)
+            const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
+
+            const partMatrix = Matrix.Compose(
               Vector3.One(), PART_ROT_QUAT,
               new Vector3(gx, baseplateTop, gz)
-            ))
+            )
+
+            instances.push({ modelMatrix, partMatrix })
           }
         }
 
         // ── Thin instances ──
         for (const src of geoMeshes) {
           const meshLocal = meshLocals.get(src) ?? Matrix.Identity()
-          const prefix = meshLocal.multiply(modelMatrix)
-          const buf = new Float32Array(partMatrices.length * 16)
-          for (let j = 0; j < partMatrices.length; j++) {
-            prefix.multiply(partMatrices[j]).copyToArray(buf, j * 16)
+          const buf = new Float32Array(instances.length * 16)
+          for (let j = 0; j < instances.length; j++) {
+            const { modelMatrix, partMatrix } = instances[j]
+            meshLocal.multiply(modelMatrix).multiply(partMatrix).copyToArray(buf, j * 16)
           }
           src.parent = root
           src.position.setAll(0)

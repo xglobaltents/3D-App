@@ -11,6 +11,17 @@ export const VARIANT = '20m'
  * Ridge height: 6.90 m
  * Profiles:     same group as 15m (212×112×6 main, 127×76×3 secondary)
  */
+function makeArchHeightFn(archOuterSpan: number, eaveHeight: number, ridgeHeight: number) {
+	const rise = ridgeHeight - eaveHeight
+	const R = (archOuterSpan * archOuterSpan + rise * rise) / (2 * rise)
+	const centerY = ridgeHeight - R
+	return (x: number): number => {
+		const ax = Math.abs(x)
+		if (ax >= archOuterSpan) return eaveHeight
+		return centerY + Math.sqrt(R * R - ax * ax)
+	}
+}
+
 export const TENT_SPECS: TentSpecs = {
 	name: 'Premium Arch Tent 20m',
 	width: 20,
@@ -20,6 +31,7 @@ export const TENT_SPECS: TentSpecs = {
 	bayDistance: 5,
 	archOuterSpan: 10.141,
 	rafterSlopeAtEave: 0.3116,
+	getArchHeightAtEave: makeArchHeightFn(10.141, 4.26, 6.9),
 	profiles: {
 		upright: { width: 0.212, height: 0.112 },
 		rafter: { width: 0.212, height: 0.112 },

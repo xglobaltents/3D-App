@@ -12,7 +12,6 @@ import { Baseplates } from '@/tents/SharedFrames/Baseplates'
 import { Uprights } from '@/tents/PremiumArchTent/15m/frame/Uprights'
 import { UprightConnectors } from '@/tents/SharedFrames/UprightConnectors'
 import { EaveSideBeams } from '@/tents/PremiumArchTent/15m/frame/EaveSideBeams'
-import { GableEaveBeams } from '@/tents/PremiumArchTent/15m/frame/GableEaveBeams'
 import { GableBeams } from '@/tents/PremiumArchTent/15m/frame/GableBeams'
 import { GableSupports } from '@/tents/PremiumArchTent/15m/frame/GableSupports'
 
@@ -49,12 +48,6 @@ export const PremiumArchFrame: FC<PremiumArchFrameProps> = memo(({
 			onLoadStateChange={onLoadStateChange}
 		/>
 		<EaveSideBeams
-			numBays={numBays}
-			specs={specs}
-			enabled={!builderMode}
-			onLoadStateChange={onLoadStateChange}
-		/>
-		<GableEaveBeams
 			numBays={numBays}
 			specs={specs}
 			enabled={!builderMode}

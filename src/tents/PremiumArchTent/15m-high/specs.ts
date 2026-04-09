@@ -9,6 +9,17 @@ export const VARIANT = '15m'
  * Same width, bay distance, profiles, and GLBs as the standard 15m.
  * Taller uprights and higher arch.
  */
+function makeArchHeightFn(archOuterSpan: number, eaveHeight: number, ridgeHeight: number) {
+	const rise = ridgeHeight - eaveHeight
+	const R = (archOuterSpan * archOuterSpan + rise * rise) / (2 * rise)
+	const centerY = ridgeHeight - R
+	return (x: number): number => {
+		const ax = Math.abs(x)
+		if (ax >= archOuterSpan) return eaveHeight
+		return centerY + Math.sqrt(R * R - ax * ax)
+	}
+}
+
 export const TENT_SPECS: TentSpecs = {
 	name: 'Premium Arch Tent 15m (High Eave)',
 	width: 15,
@@ -18,6 +29,7 @@ export const TENT_SPECS: TentSpecs = {
 	bayDistance: 5,
 	archOuterSpan: 7.606,
 	rafterSlopeAtEave: 0.2977,
+	getArchHeightAtEave: makeArchHeightFn(7.606, 4.26, 6.2),
 	profiles: {
 		upright: { width: 0.212, height: 0.112 },
 		rafter: { width: 0.212, height: 0.112 },

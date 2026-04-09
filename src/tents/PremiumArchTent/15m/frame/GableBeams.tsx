@@ -4,19 +4,18 @@ import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/cor
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
-import { GABLE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 
 // ═════════════════════════════════════════════════════════════
 // Part:  Gable Beam (127x76) — 0.03m above eave (in arch zone)
 // GLB:   /tents/SharedFrames/gable-beam-80x150.glb
-// Registry: GABLE_BEAM_REG (centralized RAW extents + axis mapping)
 //
-// Pattern C: front + back gable, count = 2
+// Single instance at front gable (frame line 0).
 // ═════════════════════════════════════════════════════════════
 
 const FOLDER = '/tents/SharedFrames/'
 const FILE = 'gable-beam-80x150.glb'
 
+const MODEL_SCALE = new Vector3(0.0001245, 0.0001, 0.2985)
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 const PART_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI / 2, 0) // yaw 90°
 
@@ -76,29 +75,24 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
           meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
         }
 
-        // ── Model scale from centralized registry ──
-        const regScale = computePartScale(GABLE_BEAM_REG, {
-          profiles: specs.profiles,
-          bayDistance: specs.bayDistance,
-          eaveHeight: specs.eaveHeight,
-          tentWidth: specs.width,
-          halfWidth: specs.halfWidth,
-        })
-        const modelScale = new Vector3(regScale.x, regScale.y, regScale.z)
-        const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
+        // ── Model transform ──
+        const modelMatrix = Matrix.Compose(MODEL_SCALE, MODEL_ROT_QUAT, Vector3.Zero())
 
-        // ── Placement: Pattern C — front + back gable ──
+        // ── Placement: single instance at front gable ──
         const baseplateTop = specs.baseplate?.height ?? 0
         const beamY = baseplateTop + specs.eaveHeight + 0.03
         const halfLength = (numBays * specs.bayDistance) / 2
 
-        const partMatrices: Matrix[] = []
-        for (const gz of [-halfLength, halfLength]) {
-          partMatrices.push(Matrix.Compose(
+        const partMatrices: Matrix[] = [
+          Matrix.Compose(
             Vector3.One(), PART_ROT_QUAT,
-            new Vector3(0, beamY, gz)
-          ))
-        }
+            new Vector3(0, beamY, -halfLength)
+          ),
+          Matrix.Compose(
+            Vector3.One(), PART_ROT_QUAT,
+            new Vector3(0, beamY, halfLength)
+          ),
+        ]
 
         // ── Thin instances ──
         for (const src of geoMeshes) {
