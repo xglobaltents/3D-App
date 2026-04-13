@@ -9,13 +9,26 @@ import type { TentSpecs } from '@/types'
 // Part:  Gable Beam (127x76) — 0.03m above eave (in arch zone)
 // GLB:   /tents/SharedFrames/gable-beam-80x150.glb
 //
-// Single instance at front gable (frame line 0).
+// Instance at front + back gable.
+//
+// Calibrated at: 15m width, 127×76mm gableBeam profile.
+// Scale adapts dynamically to tent width and profile dimensions.
 // ═════════════════════════════════════════════════════════════
 
 const FOLDER = '/tents/SharedFrames/'
 const FILE = 'gable-beam-80x150.glb'
 
-const MODEL_SCALE = new Vector3(0.0001245, 0.0001, 0.2985)
+// ── Calibration reference (15m tent, 127×76mm profile) ──
+// Raw vertex extents (from GLB vertex buffer, no parent transforms):
+//   X = 435 (profile height face), Y = 809 (profile width face), Z = 50 (length)
+// Axis mapping:  X,Y = cross-section,  Z = beam length (tent width)
+const CALIB_WIDTH = 15
+const CALIB_PROFILE_W = 0.127
+const CALIB_PROFILE_H = 0.076
+const BASE_SCALE_X = 0.0001747  // profile height face — 76mm / raw 435
+const BASE_SCALE_Y = 0.000157   // profile width face  — 127mm / raw 809
+const BASE_SCALE_Z = 0.2985     // length axis — scales with tent width
+
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 const PART_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI / 2, 0) // yaw 90°
 
@@ -41,7 +54,13 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
 
     const root = new TransformNode('gable-beams-root', scene)
     const allDisposables: (Mesh | TransformNode)[] = [root]
-    const aluminumMat = getAluminumMaterial(scene)
+
+    // Clone material BEFORE async — per Rule 11 & 13.
+    // backFaceCulling = false because the GLB's internal mesh rotations
+    // combined with handedness rotation + extreme non-uniform scaling
+    // flip winding order on some triangles, causing face flickering.
+    const gableBeamMat = getAluminumMaterial(scene).clone('aluminum-gable-beams')
+    gableBeamMat.backFaceCulling = false
 
     onLoadStateChange?.(true)
 
@@ -65,7 +84,7 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
           if (!geoMeshes.includes(m as Mesh)) { try { m.dispose() } catch {} }
         }
 
-        stripAndApplyMaterial(geoMeshes, aluminumMat)
+        stripAndApplyMaterial(geoMeshes, gableBeamMat)
 
         // Capture mesh-local transforms
         const meshLocals = new Map<Mesh, Matrix>()
@@ -75,10 +94,16 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
           meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
         }
 
-        // ── Model transform ──
-        const modelMatrix = Matrix.Compose(MODEL_SCALE, MODEL_ROT_QUAT, Vector3.Zero())
+        // ── Model transform (dynamic from specs) ──
+        const profile = specs.profiles.gableBeam
+        const modelScale = new Vector3(
+          BASE_SCALE_X * (profile.height / CALIB_PROFILE_H),  // X = profile height face
+          BASE_SCALE_Y * (profile.width / CALIB_PROFILE_W),   // Y = profile width face
+          BASE_SCALE_Z * (specs.width / CALIB_WIDTH),          // Z = beam length
+        )
+        const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
 
-        // ── Placement: single instance at front gable ──
+        // ── Placement: instances at front and back gables ──
         const baseplateTop = specs.baseplate?.height ?? 0
         const beamY = baseplateTop + specs.eaveHeight + 0.03
         const halfLength = (numBays * specs.bayDistance) / 2
@@ -125,6 +150,7 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
     return () => {
       controller.abort()
       for (const d of allDisposables) { try { d.dispose() } catch {} }
+      try { gableBeamMat.dispose() } catch { /* gone */ }
     }
   }, [scene, enabled, specs, numBays, onLoadStateChange])
 

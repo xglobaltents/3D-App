@@ -27,6 +27,7 @@ import { Engine } from '@babylonjs/core/Engines/engine'
 import { WebGPUEngine } from '@babylonjs/core/Engines/webgpuEngine'
 import { Scene } from '@babylonjs/core/scene'
 import { Color4 } from '@babylonjs/core/Maths/math.color'
+import { clearGLBCache } from '@/lib/utils/GLBLoader'
 import '@babylonjs/loaders/glTF'
 
 // ─── Module-level engine type cache ──────────────────────────────────────────
@@ -38,7 +39,7 @@ let engineTypeDecision: 'webgpu' | 'webgl' | null = null
 // ─── Constants ───────────────────────────────────────────────────────────────
 
 /** Default max hardware scaling ratio — caps render resolution on high-DPI screens */
-const DEFAULT_MAX_DPR = Infinity
+const DEFAULT_MAX_DPR = 2
 
 /** Resize debounce delay in ms */
 const RESIZE_DEBOUNCE_MS = 150
@@ -259,6 +260,7 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
 
       // Engine + scene cleanup
       if (engine) engine.stopRenderLoop()
+      if (scene) clearGLBCache(scene)
       scene?.dispose()
       engine?.dispose()
 

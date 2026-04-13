@@ -116,6 +116,17 @@ function getMetalReflection(scene: Scene): CubeTexture {
   )
   metalReflection.onLoadObservable.addOnce(() => {
     console.log('frameMaterials: Fixed metal reflection cubemap ready')
+    // Mark all cached PBR materials dirty so they recompile with the
+    // now-ready reflection texture.  Without this, materials that compiled
+    // before the cubemap loaded may have stale shader defines (no REFLECTION)
+    // causing flat/dull metal appearance.
+    for (const [, mat] of cache.entries()) {
+      try {
+        if (mat instanceof PBRMaterial) {
+          mat.markAsDirty(Constants.MATERIAL_TextureDirtyFlag)
+        }
+      } catch { /* disposed */ }
+    }
   })
   metalReflectionSceneUid = scene.uid
   return metalReflection

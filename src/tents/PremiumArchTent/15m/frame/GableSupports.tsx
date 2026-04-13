@@ -20,8 +20,10 @@ import type { TentSpecs } from '@/types'
 // ═════════════════════════════════════════════════════════════
 
 // From PartBuilder calibration (gable-support-77x127.glb)
-const CROSS_SCALE_BASE = 0.0003428     // uniform X & Y at 127mm nominal
+const CROSS_SCALE_BASE_X = 0.0003428   // X at 127mm nominal (width face)
+const CROSS_SCALE_BASE_Y = 0.0003428   // Y at 76mm nominal (height face — same base, separate correction)
 const CALIBRATED_PROFILE_W = 0.127     // 127mm — the GLB's designed-for profile width
+const CALIBRATED_PROFILE_H = 0.076     // 76mm  — the GLB's designed-for profile height
 const Z_SCALE_PER_METER = 0.1641 / 3.2 // calibrated at eaveHeight = 3.2m
 
 const FOLDER = '/tents/SharedFrames/'
@@ -88,8 +90,10 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
         }
 
         // ── Model scale: PartBuilder-calibrated constants ──
-        const correction = specs.profiles.gableColumn.width / CALIBRATED_PROFILE_W
-        const crossScale = CROSS_SCALE_BASE * correction // X = Y
+        const widthCorrection = specs.profiles.gableColumn.width / CALIBRATED_PROFILE_W
+        const heightCorrection = specs.profiles.gableColumn.height / CALIBRATED_PROFILE_H
+        const crossScaleX = CROSS_SCALE_BASE_X * widthCorrection
+        const crossScaleY = CROSS_SCALE_BASE_Y * heightCorrection
 
         const baseplateTop = specs.baseplate?.height ?? 0
         const halfLength = (numBays * specs.bayDistance) / 2
@@ -105,7 +109,7 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
             const supportHeight = topY - baseplateTop
             const scaleZ = Z_SCALE_PER_METER * supportHeight
 
-            const modelScale = new Vector3(crossScale, crossScale, scaleZ)
+            const modelScale = new Vector3(crossScaleX, crossScaleY, scaleZ)
             const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
 
             const partMatrix = Matrix.Compose(

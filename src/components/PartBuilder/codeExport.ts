@@ -31,6 +31,17 @@ export interface CodeExportContext {
   halfLength: number
 }
 
+export type PlacementPattern =
+  | 'both-sides-every-bay'
+  | 'gable-ends-only'
+  | 'every-frame-line'
+  | 'single-instance'
+
+export interface ComponentExportOptions {
+  componentName: string
+  placementPattern: PlacementPattern
+}
+
 /* ─── Nearest frame line finder ───────────────────────────────────────────── */
 
 function findNearestLine(
@@ -443,4 +454,198 @@ export function generateRichJSON(ctx: CodeExportContext): string {
   }
 
   return JSON.stringify(output, null, 2)
+}
+
+function normalizeComponentName(raw: string): string {
+  const cleaned = raw.replace(/[^a-zA-Z0-9]+/g, ' ').trim()
+  const pascal = cleaned
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join('')
+  return pascal || 'GeneratedFramePart'
+}
+
+function placementLoop(pattern: PlacementPattern): string {
+  switch (pattern) {
+    case 'both-sides-every-bay':
+      return `for (let i = 0; i <= numBays; i++) {
+          const z = i * specs.bayDistance - halfLength
+          for (const side of [-1, 1]) {
+            partMatrices.push(
+              Matrix.Compose(
+                Vector3.One(),
+                PART_ROT_QUAT,
+                new Vector3(side * specs.halfWidth, BASE_Y, z),
+              ),
+            )
+          }
+        }`
+    case 'gable-ends-only':
+      return `for (const z of [-halfLength, halfLength]) {
+          partMatrices.push(
+            Matrix.Compose(
+              Vector3.One(),
+              PART_ROT_QUAT,
+              new Vector3(BASE_X, BASE_Y, z),
+            ),
+          )
+        }`
+    case 'every-frame-line':
+      return `for (let i = 0; i <= numBays; i++) {
+          const z = i * specs.bayDistance - halfLength
+          partMatrices.push(
+            Matrix.Compose(
+              Vector3.One(),
+              PART_ROT_QUAT,
+              new Vector3(BASE_X, BASE_Y, z),
+            ),
+          )
+        }`
+    case 'single-instance':
+    default:
+      return `partMatrices.push(
+          Matrix.Compose(
+            Vector3.One(),
+            PART_ROT_QUAT,
+            new Vector3(BASE_X, BASE_Y, BASE_Z),
+          ),
+        )`
+  }
+}
+
+export function generateComponentFile(
+  ctx: CodeExportContext,
+  options: ComponentExportOptions,
+): string {
+  const componentName = normalizeComponentName(options.componentName)
+  const loopBody = placementLoop(options.placementPattern)
+  const yRotComment = `Quaternion.FromEulerAngles(${roundTo4(ctx.modelRotation.x)}, ${roundTo4(ctx.modelRotation.y)}, ${roundTo4(ctx.modelRotation.z)})`
+
+  return `import { type FC, useEffect, memo, useRef } from 'react'
+import { useScene } from '@/engine/BabylonProvider'
+import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
+import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
+import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import type { TentSpecs } from '@/types'
+
+const FOLDER = '${ctx.glb.folder}'
+const FILE = '${ctx.glb.file}'
+
+const MODEL_SCALE = new Vector3(${ctx.axisScale.x}, ${ctx.axisScale.y}, ${ctx.axisScale.z})
+const MODEL_ROT_QUAT = ${yRotComment}
+const PART_ROT_QUAT = Quaternion.FromEulerAngles(${roundTo4(ctx.transform.rx)}, ${roundTo4(ctx.transform.ry)}, ${roundTo4(ctx.transform.rz)})
+
+interface ${componentName}Props {
+  numBays: number
+  specs: TentSpecs
+  enabled: boolean
+  onLoadStateChange?: (loading: boolean) => void
+}
+
+export const ${componentName}: FC<${componentName}Props> = memo(({
+  numBays, specs, enabled, onLoadStateChange
+}) => {
+  const scene = useScene()
+  const abortRef = useRef<AbortController | null>(null)
+
+  useEffect(() => {
+    if (!scene || !enabled) return
+
+    abortRef.current?.abort()
+    const controller = new AbortController()
+    abortRef.current = controller
+
+    const root = new TransformNode('${componentName}-root', scene)
+    const allDisposables: (Mesh | TransformNode)[] = [root]
+    const aluminumMat = getAluminumMaterial(scene)
+
+    onLoadStateChange?.(true)
+
+    loadGLB(scene, FOLDER, FILE, controller.signal)
+      .then((loaded) => {
+        if (controller.signal.aborted) {
+          for (const m of loaded) m.dispose()
+          onLoadStateChange?.(false)
+          return
+        }
+
+        const geoMeshes = loaded.filter(
+          (m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0,
+        )
+        if (!geoMeshes.length) {
+          for (const m of loaded) {
+            try { m.dispose() } catch {}
+          }
+          onLoadStateChange?.(false)
+          return
+        }
+        for (const m of loaded) {
+          if (!geoMeshes.includes(m as Mesh)) {
+            try { m.dispose() } catch {}
+          }
+        }
+
+        stripAndApplyMaterial(geoMeshes, aluminumMat)
+
+        const meshLocals = new Map<Mesh, Matrix>()
+        for (const mesh of geoMeshes) {
+          const rot = mesh.rotationQuaternion?.clone()
+            ?? Quaternion.FromEulerAngles(mesh.rotation.x, mesh.rotation.y, mesh.rotation.z)
+          meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
+        }
+
+        const modelMatrix = Matrix.Compose(MODEL_SCALE, MODEL_ROT_QUAT, Vector3.Zero())
+
+        const baseplateTop = specs.baseplate?.height ?? 0
+        const halfLength = (numBays * specs.bayDistance) / 2
+        const BASE_X = ${ctx.transform.px}
+        const BASE_Y = ${ctx.transform.py}
+        const BASE_Z = ${ctx.transform.pz}
+
+        const partMatrices: Matrix[] = []
+        ${loopBody}
+
+        for (const src of geoMeshes) {
+          const meshLocal = meshLocals.get(src) ?? Matrix.Identity()
+          const prefix = meshLocal.multiply(modelMatrix)
+          const buf = new Float32Array(partMatrices.length * 16)
+          for (let j = 0; j < partMatrices.length; j++) {
+            prefix.multiply(partMatrices[j]).copyToArray(buf, j * 16)
+          }
+
+          src.parent = root
+          src.position.setAll(0)
+          src.rotationQuaternion = null
+          src.rotation.setAll(0)
+          src.scaling.setAll(1)
+          src.setEnabled(true)
+          src.thinInstanceSetBuffer('matrix', buf, 16)
+          src.thinInstanceRefreshBoundingInfo(false)
+          src.alwaysSelectAsActiveMesh = true
+          src.freezeWorldMatrix()
+          src.freezeNormals()
+          allDisposables.push(src)
+        }
+
+        onLoadStateChange?.(false)
+      })
+      .catch((err) => {
+        if (!controller.signal.aborted) {
+          console.error('${componentName}: load failed', err)
+        }
+        onLoadStateChange?.(false)
+      })
+
+    return () => {
+      controller.abort()
+      for (const d of allDisposables) {
+        try { d.dispose() } catch {}
+      }
+    }
+  }, [scene, enabled, specs, numBays, onLoadStateChange])
+
+  return null
+})
+`
 }

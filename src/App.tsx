@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, type ErrorInfo, Component, type ReactNode } from 'react'
+import { useState, useCallback, useRef, useEffect, type ErrorInfo, Component, type ReactNode } from 'react'
 import '@babylonjs/loaders/glTF'
 
 import { BabylonProvider } from '@/engine/BabylonProvider'
@@ -71,10 +71,19 @@ function App() {
   const [loadingCount, setLoadingCount] = useState(0)
   const [builderMode, setBuilderMode] = useState(false)
   const [toast, setToast] = useState<string | null>(null)
+  const toastTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Clear toast timer on unmount to prevent state updates after unmount
+  useEffect(() => {
+    return () => {
+      if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    }
+  }, [])
 
   const showToast = useCallback((msg: string) => {
     setToast(msg)
-    setTimeout(() => setToast(null), 2500)
+    if (toastTimerRef.current) clearTimeout(toastTimerRef.current)
+    toastTimerRef.current = setTimeout(() => setToast(null), 2500)
   }, [])
 
   // (#19) Mobile bottom sheet drag gesture
@@ -97,6 +106,7 @@ function App() {
   const tentLength = numBays * specs.bayDistance
 
   // (#1) Reactive camera config based on tent dimensions
+  // React Compiler auto-memoizes this — no manual useMemo needed
   const cameraConfig = getReactiveCameraConfig(numBays, specs.eaveHeight, specs.bayDistance)
 
   // Loading state tracking for child components (#22)

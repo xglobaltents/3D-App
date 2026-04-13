@@ -629,6 +629,10 @@ export const SceneSetup: FC<SceneSetupProps> = ({
       camera.dispose()
       cameraRef.current = null
     }
+    // Camera is created ONCE per scene. Target, radius, and upperLimit are
+    // intentionally excluded — they are updated reactively in separate effects
+    // below. Including them here would destroy and recreate the camera on every
+    // dimension change, losing the user's orbit position and causing flicker.
   }, [scene]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // ── Environment setup (rebuilds on preset change) ──

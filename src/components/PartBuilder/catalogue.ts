@@ -16,6 +16,7 @@ import {
   GABLE_BEAM_REG,
   GABLE_SUPPORT_REG,
 } from '@/lib/constants/glbRegistry'
+import { getPartCalibrationScale } from '@/lib/constants/partCalibrations'
 
 /* ─── Default Position Context ────────────────────────────────────────────── */
 
@@ -87,9 +88,13 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
     : { depth: specs.profiles.upright.height, height: specs.profiles.upright.width, length: specs.profiles.upright.width * 2 }
 
   const connectorScale = computePartScale(UPRIGHT_CONNECTOR_REG, scaleCtx, plateCtx)
-  const eaveSideScale = computePartScale(EAVE_SIDE_BEAM_REG, scaleCtx)
+  const eaveSideScale = getPartCalibrationScale('eave-side-beam', specs)
+    ?? computePartScale(EAVE_SIDE_BEAM_REG, scaleCtx)
+  // Keep gable beam on registry mapping so PartBuilder matches runtime
+  // component behavior (runtime uses independent X/Y profile scaling).
   const gableBeamScale = computePartScale(GABLE_BEAM_REG, scaleCtx)
-  const gableSupportScale = computePartScale(GABLE_SUPPORT_REG, scaleCtx)
+  const gableSupportScale = getPartCalibrationScale('gable-support', specs)
+    ?? computePartScale(GABLE_SUPPORT_REG, scaleCtx)
 
   const connectorLabels = getAxisLabels(UPRIGHT_CONNECTOR_REG, scaleCtx, plateCtx)
   const eaveSideLabels = getAxisLabels(EAVE_SIDE_BEAM_REG, scaleCtx)
@@ -217,7 +222,8 @@ function getVariantParts(specs: TentSpecs, tentType: TentType, variant: TentVari
     tentWidth: specs.width,
     halfWidth: specs.halfWidth,
   }
-  const uprightScale = computePartScale(UPRIGHT_REG, scaleCtx)
+  const uprightScale = getPartCalibrationScale('upright', specs)
+    ?? computePartScale(UPRIGHT_REG, scaleCtx)
   const uprightLabels = getAxisLabels(UPRIGHT_REG, scaleCtx)
 
   parts.push({

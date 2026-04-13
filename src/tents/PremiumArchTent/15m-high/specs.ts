@@ -1,5 +1,6 @@
 import type { TentSpecs } from '@/types'
 import { getFramePath, getConnectorsPath, getCoversPath } from '@/lib/constants/assetPaths'
+import { makeArchHeightFn } from '@/lib/utils/archMath'
 
 export const TENT_TYPE = 'PremiumArchTent'
 export const VARIANT = '15m'
@@ -9,16 +10,6 @@ export const VARIANT = '15m'
  * Same width, bay distance, profiles, and GLBs as the standard 15m.
  * Taller uprights and higher arch.
  */
-function makeArchHeightFn(archOuterSpan: number, eaveHeight: number, ridgeHeight: number) {
-	const rise = ridgeHeight - eaveHeight
-	const R = (archOuterSpan * archOuterSpan + rise * rise) / (2 * rise)
-	const centerY = ridgeHeight - R
-	return (x: number): number => {
-		const ax = Math.abs(x)
-		if (ax >= archOuterSpan) return eaveHeight
-		return centerY + Math.sqrt(R * R - ax * ax)
-	}
-}
 
 export const TENT_SPECS: TentSpecs = {
 	name: 'Premium Arch Tent 15m (High Eave)',

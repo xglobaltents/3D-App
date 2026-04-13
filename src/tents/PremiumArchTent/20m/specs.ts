@@ -1,5 +1,6 @@
 import type { TentSpecs } from '@/types'
 import { getFramePath, getConnectorsPath, getCoversPath } from '@/lib/constants/assetPaths'
+import { makeArchHeightFn } from '@/lib/utils/archMath'
 
 export const TENT_TYPE = 'PremiumArchTent'
 export const VARIANT = '20m'
@@ -11,16 +12,6 @@ export const VARIANT = '20m'
  * Ridge height: 6.90 m
  * Profiles:     same group as 15m (212×112×6 main, 127×76×3 secondary)
  */
-function makeArchHeightFn(archOuterSpan: number, eaveHeight: number, ridgeHeight: number) {
-	const rise = ridgeHeight - eaveHeight
-	const R = (archOuterSpan * archOuterSpan + rise * rise) / (2 * rise)
-	const centerY = ridgeHeight - R
-	return (x: number): number => {
-		const ax = Math.abs(x)
-		if (ax >= archOuterSpan) return eaveHeight
-		return centerY + Math.sqrt(R * R - ax * ax)
-	}
-}
 
 export const TENT_SPECS: TentSpecs = {
 	name: 'Premium Arch Tent 20m',

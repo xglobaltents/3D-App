@@ -35,18 +35,17 @@ import type { TentSpecs } from '@/types'
 import type { MirrorFlags, PanelTab, TransformValues, SavedConfig, AxisScale } from './types'
 import { EMPTY_MIRRORS, DEFAULT_SCALE, MIN_SCALE, MAX_SCALE, clampAxisScale } from './types'
 import { safeDispose, safeDisposeArray } from './utils'
-import { generateRichCode, generateRichJSON, type CodeExportContext } from './codeExport'
+import {
+  generateRichCode,
+  generateRichJSON,
+  generateComponentFile,
+  type CodeExportContext,
+  type PlacementPattern,
+} from './codeExport'
 import { getGLBParts } from './catalogue'
 import type { TentType, TentVariant } from '@/lib/constants/assetPaths'
 import type { AlignSpecs } from './hooks/usePartTransform'
-import {
-  type ScaleContext,
-  type AxisRole,
-  computePartScale,
-  getAxisLabels,
-  hasProfileAxes,
-  UPRIGHT_CONNECTOR_REG,
-} from '@/lib/constants/glbRegistry'
+import { PART_CALIBRATIONS } from '@/lib/constants/partCalibrations'
 
 import { useUndoRedo } from './hooks/useUndoRedo'
 import { useCameraLock } from './hooks/useCameraLock'
@@ -141,10 +140,9 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
   const [gizmoSize, setGizmoSize] = useState(3)
   const [lockScale, setLockScale] = useState(true)
   const [restoringConfig, setRestoringConfig] = useState<string | null>(null)
-  const [swapProfileWH, setSwapProfileWH] = useState(false)
-  const [showMapping, setShowMapping] = useState(false)
-  /** Per-axis target overrides — when user reassigns an axis via the mapping UI */
-  const [axisOverrides, setAxisOverrides] = useState<Record<'x' | 'y' | 'z', AxisRole | null>>({ x: null, y: null, z: null })
+  const [placementPattern, setPlacementPattern] = useState<PlacementPattern>('both-sides-every-bay')
+  const [calibrationCopied, setCalibrationCopied] = useState(false)
+  const [componentCopied, setComponentCopied] = useState(false)
 
   // Pending saved config to apply after part loads (replaces unreliable 500ms timeout)
   const pendingConfigRef = useRef<SavedConfig | null>(null)
@@ -552,8 +550,11 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
     (axis: 'x' | 'y' | 'z', val: number) => {
       const cur = partLoader.axisScale
       if (lockScale) {
-        // Uniform: apply the same value to all axes
-        applyAxisScaleAll({ x: val, y: val, z: val })
+        if (axis === 'z') {
+          applyAxisScaleAll({ ...cur, z: val })
+        } else {
+          applyAxisScaleAll({ ...cur, x: val, y: val })
+        }
       } else {
         applyAxisScaleAll({ ...cur, [axis]: val })
       }
@@ -561,84 +562,119 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
     [partLoader.axisScale, lockScale, applyAxisScaleAll]
   )
 
-  // ── Profile W↔H swap handler ───────────────────────────────────────────
-  const handleSwapProfileWH = useCallback(() => {
+  const handleSaveCalibration = useCallback(async () => {
     const glb = parts[selectedPart]
-    if (!glb.registry || !hasProfileAxes(glb.registry)) return
+    const raw = partLoader.rawExtents
+    const calibration = PART_CALIBRATIONS[glb.id]
+    if (!raw || !calibration) return
 
-    const nextSwap = !swapProfileWH
-    setSwapProfileWH(nextSwap)
-
-    const scaleCtx: ScaleContext = {
-      profiles: specs.profiles,
-      bayDistance: specs.bayDistance,
-      eaveHeight: specs.eaveHeight,
-      tentWidth: specs.width,
-      halfWidth: specs.halfWidth,
+    const worldByAxis = {
+      x: raw.x * partLoader.axisScale.x,
+      y: raw.y * partLoader.axisScale.y,
+      z: raw.z * partLoader.axisScale.z,
     }
-    const plateCtx = glb.registry === UPRIGHT_CONNECTOR_REG && specs.connectorPlate
-      ? { depth: specs.connectorPlate.depth, height: specs.connectorPlate.height, length: specs.connectorPlate.length }
-      : undefined
+    const entries = Object.entries(worldByAxis) as Array<['x' | 'y' | 'z', number]>
+    entries.sort((a, b) => b[1] - a[1])
 
-    const newScale = computePartScale(glb.registry, scaleCtx, plateCtx, nextSwap)
-    applyAxisScaleAll(newScale)
-  }, [parts, selectedPart, swapProfileWH, specs, applyAxisScaleAll])
+    const lengthAxis = entries[0][0]
+    const crossAxes = (['x', 'y', 'z'] as const).filter((axis) => axis !== lengthAxis)
+    const crossScale = (partLoader.axisScale[crossAxes[0]] + partLoader.axisScale[crossAxes[1]]) / 2
 
-  // ── Axis role mapping handler ───────────────────────────────────────────
-  /** Recompute scale for a single axis when the user changes its role via dropdown */
-  const handleAxisTargetChange = useCallback(
-    (axis: 'x' | 'y' | 'z', targetKey: string) => {
-      const rawExtents = partLoader.rawExtents
-      if (!rawExtents) return
+    const sourceTarget = calibration.lengthSource === 'bayDistance'
+      ? specs.bayDistance
+      : calibration.lengthSource === 'eaveHeight'
+        ? specs.eaveHeight
+        : specs.width
+    const lengthScalePerMeter = partLoader.axisScale[lengthAxis] / sourceTarget
 
-      const raw = rawExtents[axis]
-      if (raw <= 0) return
+    const profileWidth = specs.profiles[calibration.profileKey].width
+    const snippet = [
+      `'${glb.id}': {`,
+      `  profileKey: '${calibration.profileKey}',`,
+      `  crossScale: ${crossScale.toFixed(7)},`,
+      `  calibratedProfileW: ${profileWidth.toFixed(3)},`,
+      `  lengthScalePerMeter: ${lengthScalePerMeter.toFixed(8)},`,
+      `  lengthSource: '${calibration.lengthSource}',`,
+      `  lengthAxis: '${lengthAxis}',`,
+      '},',
+    ].join('\n')
 
-      let newRole: AxisRole
-      let scaleValue: number
+    try {
+      await navigator.clipboard.writeText(snippet)
+      setCalibrationCopied(true)
+      setTimeout(() => setCalibrationCopied(false), 2000)
+    } catch (err) {
+      console.warn('Calibration clipboard write failed:', err)
+    }
+  }, [parts, selectedPart, partLoader.rawExtents, partLoader.axisScale, specs])
 
-      switch (targetKey) {
-        case 'profileWidth':
-        case 'profileHeight': {
-          const glb = parts[selectedPart]
-          const pk = glb.registry?.profileKey
-          if (!pk) return
-          scaleValue = targetKey === 'profileWidth'
-            ? specs.profiles[pk].width / raw
-            : specs.profiles[pk].height / raw
-          newRole = { type: targetKey }
-          break
-        }
-        case 'bayDistance':
-          scaleValue = specs.bayDistance / raw
-          newRole = { type: 'length', source: 'bayDistance' }
-          break
-        case 'eaveHeight':
-          scaleValue = specs.eaveHeight / raw
-          newRole = { type: 'length', source: 'eaveHeight' }
-          break
-        case 'tentWidth':
-          scaleValue = specs.width / raw
-          newRole = { type: 'length', source: 'tentWidth' }
-          break
-        case 'halfWidth':
-          scaleValue = specs.halfWidth / raw
-          newRole = { type: 'length', source: 'halfWidth' }
-          break
-        case 'base':
-          scaleValue = 0.001
-          newRole = { type: 'base' }
-          break
-        default:
-          return
+  const handleCopyComponent = useCallback(async () => {
+    const v = partTransformHook.readTransform()
+    const glb = parts[selectedPart]
+
+    const mn = partLoader.modelNodeRef.current
+    let modelRotation = { x: 0, y: Math.PI, z: 0 }
+    let modelUsedQuaternion = false
+    if (mn) {
+      if (mn.rotationQuaternion) {
+        const euler = mn.rotationQuaternion.toEulerAngles()
+        modelRotation = { x: euler.x, y: euler.y, z: euler.z }
+        modelUsedQuaternion = true
+      } else {
+        modelRotation = { x: mn.rotation.x, y: mn.rotation.y, z: mn.rotation.z }
       }
+    }
 
-      setAxisOverrides((prev) => ({ ...prev, [axis]: newRole }))
-      const newScale = { ...partLoader.axisScale, [axis]: scaleValue }
-      applyAxisScaleAll(newScale)
-    },
-    [partLoader.rawExtents, partLoader.axisScale, parts, selectedPart, specs, applyAxisScaleAll],
-  )
+    const ctx: CodeExportContext = {
+      glb,
+      transform: v,
+      axisScale: partLoader.axisScale,
+      modelRotation,
+      modelUsedQuaternion,
+      mirrors,
+      dimensions: partLoader.dimensions,
+      specs: {
+        name: specs.name,
+        halfWidth: specs.halfWidth,
+        eaveHeight: specs.eaveHeight,
+        ridgeHeight: specs.ridgeHeight,
+        bayDistance: specs.bayDistance,
+      },
+      numBays,
+      lineZs,
+      baseplateTop,
+      halfLength,
+    }
+
+    const componentName = glb.label.replace(/[^a-zA-Z0-9]+/g, ' ').trim().split(/\s+/)
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+      .join('')
+
+    const text = generateComponentFile(ctx, {
+      componentName: componentName || 'GeneratedFramePart',
+      placementPattern,
+    })
+
+    try {
+      await navigator.clipboard.writeText(text)
+      setComponentCopied(true)
+      setTimeout(() => setComponentCopied(false), 2000)
+    } catch (err) {
+      console.warn('Component clipboard write failed:', err)
+    }
+  }, [
+    partTransformHook,
+    parts,
+    selectedPart,
+    partLoader,
+    mirrors,
+    specs,
+    numBays,
+    lineZs,
+    baseplateTop,
+    halfLength,
+    placementPattern,
+  ])
 
   // ── Copy / Export ──────────────────────────────────────────────────────
   const handleCopy = useCallback(
@@ -708,6 +744,16 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
   // ── Mirror count ───────────────────────────────────────────────────────
   const mirrorCount = countMirrors(mirrors)
 
+  const dimensionSummary = useMemo(() => {
+    const dims = partLoader.dimensions
+    const sorted = [dims.w, dims.h, dims.d].sort((a, b) => b - a)
+    return {
+      length: sorted[0],
+      crossA: sorted[1],
+      crossB: sorted[2],
+    }
+  }, [partLoader.dimensions])
+
   // ── Tab labels (no emojis per project rules) ──────────────────────────
   const TAB_CONFIG: { key: PanelTab; label: string }[] = [
     { key: 'move', label: 'Move' },
@@ -755,8 +801,6 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
           transformCacheRef.current.set(selectedPart, partTransformHook.readTransform())
           scaleCacheRef.current.set(selectedPart, { ...partLoader.axisScale })
           setSelectedPart(+e.target.value)
-          setSwapProfileWH(false)
-          setAxisOverrides({ x: null, y: null, z: null })
         }}
         aria-label="Select part"
       >
@@ -780,6 +824,11 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
         <div className={styles.dimensions}>
           {partLoader.dimensions.w.toFixed(3)} x {partLoader.dimensions.h.toFixed(3)} x{' '}
           {partLoader.dimensions.d.toFixed(3)} m
+          <div>
+            Cross: {(dimensionSummary.crossA * 1000).toFixed(0)} x {(dimensionSummary.crossB * 1000).toFixed(0)} mm
+            {' | '}
+            Length: {dimensionSummary.length.toFixed(3)} m
+          </div>
           {parts[selectedPart].registry?.profileKey && (
             <>
               <span className={styles.profileBadge}>
@@ -790,106 +839,9 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
                 {specs.profiles[parts[selectedPart].registry!.profileKey!].height * 1000}
                 mm)
               </span>
-              {hasProfileAxes(parts[selectedPart].registry!) && (
-                <button
-                  className={`${styles.stepBtn} ${swapProfileWH ? styles.stepBtnActive : ''}`}
-                  onClick={handleSwapProfileWH}
-                  title="Swap profile width/height mapping on cross-section axes"
-                  style={{ marginLeft: 4, fontSize: 9 }}
-                >
-                  Swap W/H
-                </button>
-              )}
             </>
           )}
         </div>
-      )}
-
-      {/* Axis Mapping — shows raw extents and lets user reassign targets */}
-      {partLoader.rawExtents && parts[selectedPart].registry && (
-        <>
-          <div className={styles.row}>
-            <span className={styles.miniLabel}>Mapping</span>
-            <button
-              className={`${styles.stepBtn} ${showMapping ? styles.stepBtnActive : ''}`}
-              onClick={() => setShowMapping(!showMapping)}
-              title="Show per-axis role mapping and profile info"
-            >
-              {showMapping ? 'Hide' : 'Show'}
-            </button>
-          </div>
-          {showMapping && (
-            <div className={styles.mappingPanel}>
-              {/* Nominal profile info if available */}
-              {parts[selectedPart].registry?.nominalProfile && (
-                <div className={styles.mappingNote}>
-                  Nominal: {(parts[selectedPart].registry!.nominalProfile!.width * 1000).toFixed(0)}
-                  ×{(parts[selectedPart].registry!.nominalProfile!.height * 1000).toFixed(0)}mm
-                  {parts[selectedPart].registry!.profileKey && (
-                    <> → Target: {(specs.profiles[parts[selectedPart].registry!.profileKey!].width * 1000).toFixed(0)}
-                    ×{(specs.profiles[parts[selectedPart].registry!.profileKey!].height * 1000).toFixed(0)}mm</>
-                  )}
-                </div>
-              )}
-              <div className={styles.mappingHeader}>
-                <span>Axis</span><span>Raw</span><span>Role</span><span>World</span>
-              </div>
-              {(['x', 'y', 'z'] as const).map((axis) => {
-                const raw = partLoader.rawExtents![axis]
-                const scale = partLoader.axisScale[axis]
-                const world = raw * scale
-                const glb = parts[selectedPart]
-                const reg = glb.registry!
-                const regAxis = reg.axes[axis]
-                const override = axisOverrides[axis]
-                const currentRole = override ?? regAxis.role
-
-                // Determine the dropdown value from the current role
-                let selectValue = 'base'
-                if (currentRole.type === 'profileWidth') selectValue = 'profileWidth'
-                else if (currentRole.type === 'profileHeight') selectValue = 'profileHeight'
-                else if (currentRole.type === 'length') selectValue = currentRole.source
-                else if (currentRole.type === 'fixed') selectValue = 'fixed'
-                else if (currentRole.type === 'base') selectValue = 'base'
-
-                return (
-                  <div key={axis} className={styles.mappingRow}>
-                    <span className={styles.mappingAxis}>{axis.toUpperCase()}</span>
-                    <span className={styles.mappingRaw}>{raw.toFixed(1)}</span>
-                    <select
-                      className={styles.mappingSelect}
-                      value={selectValue}
-                      onChange={(e) => handleAxisTargetChange(axis, e.target.value)}
-                    >
-                      {reg.profileKey && (
-                        <>
-                          <option value="profileWidth">
-                            Profile W ({specs.profiles[reg.profileKey].width * 1000}mm)
-                          </option>
-                          <option value="profileHeight">
-                            Profile H ({specs.profiles[reg.profileKey].height * 1000}mm)
-                          </option>
-                        </>
-                      )}
-                      <option value="bayDistance">Bay ({specs.bayDistance}m)</option>
-                      <option value="eaveHeight">Eave ({specs.eaveHeight}m)</option>
-                      <option value="tentWidth">Width ({specs.width}m)</option>
-                      <option value="halfWidth">Half ({specs.halfWidth}m)</option>
-                      <option value="base">mm→m (0.001)</option>
-                      {currentRole.type === 'fixed' && (
-                        <option value="fixed">Fixed ({scale.toFixed(6)})</option>
-                      )}
-                    </select>
-                    <span className={styles.mappingWorld}>{world < 0.01 ? (world * 1000).toFixed(1) + 'mm' : world.toFixed(3) + 'm'}</span>
-                  </div>
-                )
-              })}
-              <div className={styles.mappingNote}>
-                Raw = GLB mesh extents (pre-scale). Changing role recomputes scale for that axis.
-              </div>
-            </div>
-          )}
-        </>
       )}
 
       {/* Per-axis scale controls */}
@@ -898,9 +850,9 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
         <button
           className={`${styles.stepBtn} ${lockScale ? styles.stepBtnActive : ''}`}
           onClick={() => setLockScale(!lockScale)}
-          title={lockScale ? 'Uniform (locked)' : 'Per-axis (unlocked)'}
+          title={lockScale ? 'Profile lock (X and Y linked)' : 'Per-axis (unlocked)'}
         >
-          {lockScale ? 'Uniform' : 'Per-Axis'}
+          {lockScale ? 'Profile Lock' : 'Per-Axis'}
         </button>
       </div>
       {(['x', 'y', 'z'] as const).map((axis) => (
@@ -929,16 +881,8 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
           </div>
           {(() => {
             const glb = parts[selectedPart]
-            if (!glb.registry || !glb.axisLabels) return null
-            const label = swapProfileWH && hasProfileAxes(glb.registry)
-              ? getAxisLabels(glb.registry, {
-                  profiles: specs.profiles,
-                  bayDistance: specs.bayDistance,
-                  eaveHeight: specs.eaveHeight,
-                  tentWidth: specs.width,
-                  halfWidth: specs.halfWidth,
-                }, undefined, true)[axis]
-              : glb.axisLabels[axis]
+            if (!glb.axisLabels) return null
+            const label = glb.axisLabels[axis]
             return label && label !== 'uniform' ? (
               <div className={styles.profileHint}>{label}</div>
             ) : null
@@ -1104,6 +1048,40 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
           }}
         >
           Reset Position
+        </button>
+      </div>
+      <div className={styles.row}>
+        <button
+          className={styles.copyBtn}
+          style={{ flex: 1 }}
+          disabled={!partLoader.rawExtents || !PART_CALIBRATIONS[parts[selectedPart].id]}
+          onClick={() => void handleSaveCalibration()}
+        >
+          {calibrationCopied ? 'Calibration Copied!' : 'Save Calibration'}
+        </button>
+      </div>
+      <div className={styles.row}>
+        <span className={styles.miniLabel}>Pattern</span>
+        <select
+          className={styles.select}
+          style={{ marginBottom: 0 }}
+          value={placementPattern}
+          onChange={(e) => setPlacementPattern(e.target.value as PlacementPattern)}
+          aria-label="Placement pattern"
+        >
+          <option value="both-sides-every-bay">Both sides every bay</option>
+          <option value="gable-ends-only">Gable ends only</option>
+          <option value="every-frame-line">Every frame line</option>
+          <option value="single-instance">Single instance</option>
+        </select>
+      </div>
+      <div className={styles.row}>
+        <button
+          className={styles.copyBtn}
+          style={{ flex: 1 }}
+          onClick={() => void handleCopyComponent()}
+        >
+          {componentCopied ? 'Component Copied!' : 'Generate Component'}
         </button>
       </div>
       <div className={styles.row}>

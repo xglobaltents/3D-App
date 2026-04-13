@@ -165,18 +165,20 @@ export const EAVE_SIDE_BEAM_REG: GLBPartRegistry = {
  * Gable Eave Beam — shared GLB (gable-beam-80x150.glb).
  * Nominal profile: 150×80mm (filename convention: HxW → 80mm height × 150mm width).
  * Target profile: gableBeam from specs (127×76mm for 15m tent).
- *   GLB X = beam LENGTH          (raw 8395) → length scales with tentWidth
- *   GLB Y = profile WIDTH face   (raw 809)  → wider face of the cross-section
- *   GLB Z = profile HEIGHT face  (raw 2.591) → narrower face (internal rotation makes raw tiny)
+ *
+ * Raw extents from vertex buffer (clone loses Node 4 parent transform):
+ *   GLB X = profile HEIGHT face  (raw 435)  → narrower face of cross-section
+ *   GLB Y = profile WIDTH face   (raw 809)  → wider face of cross-section
+ *   GLB Z = beam LENGTH          (raw 50)   → length scales with tentWidth
  */
 export const GABLE_BEAM_REG: GLBPartRegistry = {
   name: 'Gable Eave Beam',
   profileKey: 'gableBeam',
   nominalProfile: { width: 0.150, height: 0.080 },
   axes: {
-    x: { role: { type: 'length', source: 'tentWidth' }, raw: 8395 },
+    x: { role: { type: 'profileHeight' }, raw: 435 },
     y: { role: { type: 'profileWidth' }, raw: 809 },
-    z: { role: { type: 'profileHeight' }, raw: 2.591 },
+    z: { role: { type: 'length', source: 'tentWidth' }, raw: 50 },
   },
 }
 
