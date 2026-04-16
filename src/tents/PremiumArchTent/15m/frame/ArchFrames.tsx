@@ -1,7 +1,7 @@
 import { type FC, memo, useEffect, useRef } from 'react'
-import { Matrix, TransformNode, Vector3, Mesh, VertexBuffer, MeshBuilder } from '@babylonjs/core'
+import { TransformNode, Vector3, Mesh, VertexBuffer } from '@babylonjs/core'
 import { useScene } from '@/engine/BabylonProvider'
-import { loadGLB, measureWorldBounds, clearBoundsCache } from '@/lib/utils/GLBLoader'
+import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 import { FRAME_PATH } from '../specs'
@@ -52,149 +52,82 @@ function makeFrameCenterlineHeightFn(specs: TentSpecs): (x: number) => number {
 	}
 }
 
-// ─── Cross-section contour extraction from GLB cap ────────────────────────────
+// ─── Arc-length parameterized arch path with Frenet frames ────────────────────
 
-/**
- * Extract the outer boundary loop from the cap face (at minY) of the
- * baked upright mesh. Returns centered 2D shape points for ExtrudeShape.
- *
- * Algorithm:
- * 1. Find all vertices at minY (cap face)
- * 2. Find triangles whose three vertices are all cap vertices
- * 3. Count edge occurrences — boundary edges appear exactly once
- * 4. Chain boundary edges into an ordered loop
- * 5. If multiple loops (hollow profile), take the largest (outer)
- */
-function extractProfileContour(meshes: Mesh[]): Vector3[] | null {
-	const allPos: number[] = []
-	const allIdx: number[] = []
-	let vOff = 0
-
-	for (const m of meshes) {
-		const p = m.getVerticesData(VertexBuffer.PositionKind)
-		const idx = m.getIndices()
-		if (!p || !idx) continue
-		for (let i = 0; i < p.length; i++) allPos.push(p[i])
-		for (let i = 0; i < idx.length; i++) allIdx.push(idx[i] + vOff)
-		vOff += p.length / 3
-	}
-
-	if (allPos.length < 9 || allIdx.length < 3) return null
-
-	// Y bounds
-	let minY = Infinity, maxY = -Infinity
-	for (let i = 1; i < allPos.length; i += 3) {
-		if (allPos[i] < minY) minY = allPos[i]
-		if (allPos[i] > maxY) maxY = allPos[i]
-	}
-	const yRange = maxY - minY
-	if (yRange <= 0) return null
-
-	const tol = yRange * 0.005
-
-	// Cap vertex indices
-	const capVerts = new Set<number>()
-	for (let v = 0; v < allPos.length / 3; v++) {
-		if (Math.abs(allPos[v * 3 + 1] - minY) < tol) capVerts.add(v)
-	}
-	if (capVerts.size < 3) return null
-
-	// Count edge occurrences in cap triangles
-	const edgeCnt = new Map<string, number>()
-	for (let t = 0; t < allIdx.length; t += 3) {
-		const a = allIdx[t], b = allIdx[t + 1], c = allIdx[t + 2]
-		if (!capVerts.has(a) || !capVerts.has(b) || !capVerts.has(c)) continue
-		for (const [u, v] of [[a, b], [b, c], [c, a]]) {
-			const key = Math.min(u, v) + ':' + Math.max(u, v)
-			edgeCnt.set(key, (edgeCnt.get(key) ?? 0) + 1)
-		}
-	}
-
-	// Boundary edges (shared by only one cap triangle)
-	const bEdges: [number, number][] = []
-	for (const [key, cnt] of edgeCnt) {
-		if (cnt === 1) {
-			const [a, b] = key.split(':').map(Number)
-			bEdges.push([a, b])
-		}
-	}
-	if (bEdges.length < 3) return null
-
-	// Build adjacency and chain into ordered loops
-	const adj = new Map<number, number[]>()
-	for (const [a, b] of bEdges) {
-		if (!adj.has(a)) adj.set(a, [])
-		if (!adj.has(b)) adj.set(b, [])
-		adj.get(a)!.push(b)
-		adj.get(b)!.push(a)
-	}
-
-	const visited = new Set<number>()
-	const loops: number[][] = []
-
-	for (const start of adj.keys()) {
-		if (visited.has(start)) continue
-		const loop = [start]
-		visited.add(start)
-		let curr = start
-		while (true) {
-			const nbrs = adj.get(curr)
-			if (!nbrs) break
-			const next = nbrs.find(n => !visited.has(n))
-			if (next === undefined) break
-			loop.push(next)
-			visited.add(next)
-			curr = next
-		}
-		if (loop.length >= 3) loops.push(loop)
-	}
-	if (loops.length === 0) return null
-
-	// Take largest loop (outer boundary for hollow profiles)
-	const outer = loops.reduce((a, b) => a.length >= b.length ? a : b)
-
-	// Centroid for centering
-	let cx = 0, cz = 0
-	for (const v of outer) {
-		cx += allPos[v * 3]
-		cz += allPos[v * 3 + 2]
-	}
-	cx /= outer.length
-	cz /= outer.length
-
-	// Shape points for ExtrudeShape: (x=width, y=depth, z=0)
-	// Reverse winding so ExtrudeShape generates outward-facing normals
-	return outer.map(v => new Vector3(
-		allPos[v * 3] - cx,
-		allPos[v * 3 + 2] - cz,
-		0,
-	))
+interface PathFrame {
+	position: Vector3
+	tangent: Vector3   // unit tangent along path
+	normal: Vector3    // unit normal perpendicular in XY plane (outward from arch)
+	arcLength: number
 }
 
-/** Rectangular fallback if cap extraction fails */
-function rectangularProfile(width: number, height: number): Vector3[] {
-	const hw = width / 2, hh = height / 2
-	return [
-		new Vector3(-hw, -hh, 0),
-		new Vector3(hw, -hh, 0),
-		new Vector3(hw, hh, 0),
-		new Vector3(-hw, hh, 0),
-	]
+const PATH_SAMPLES = 512
+const ARCH_SEGMENTS = 128
+const SEGMENT_OVERLAP = 1.03
+
+function buildArchPathFrames(specs: TentSpecs): PathFrame[] {
+	const heightFn = makeFrameCenterlineHeightFn(specs)
+	const baseplateTop = specs.baseplate?.height ?? 0
+	const span = specs.archOuterSpan
+
+	const frames: PathFrame[] = []
+	let cumLen = 0
+
+	for (let i = 0; i <= PATH_SAMPLES; i++) {
+		const t = i / PATH_SAMPLES
+		const x = -span + t * 2 * span
+		const y = baseplateTop + heightFn(x)
+		const pos = new Vector3(x, y, 0)
+
+		if (i > 0) {
+			cumLen += Vector3.Distance(frames[i - 1].position, pos)
+		}
+
+		// Central-difference tangent
+		const dt = 0.5 / PATH_SAMPLES
+		const tLo = Math.max(0, t - dt)
+		const tHi = Math.min(1, t + dt)
+		const xLo = -span + tLo * 2 * span
+		const xHi = -span + tHi * 2 * span
+		const tx = xHi - xLo
+		const ty = (baseplateTop + heightFn(xHi)) - (baseplateTop + heightFn(xLo))
+		const tLen = Math.sqrt(tx * tx + ty * ty)
+		const tangent = tLen > 0
+			? new Vector3(tx / tLen, ty / tLen, 0)
+			: new Vector3(1, 0, 0)
+
+		// Normal: rotate tangent 90° CCW in XY → points outward from arch center
+		const normal = new Vector3(-tangent.y, tangent.x, 0)
+
+		frames.push({ position: pos, tangent, normal, arcLength: cumLen })
+	}
+
+	return frames
 }
 
-// ─── Thin instance helper ─────────────────────────────────────────────────────
+/** Interpolate path frame at a given arc-length fraction t ∈ [0,1] */
+function sampleFrameAt(frames: PathFrame[], fraction: number): PathFrame {
+	const totalLen = frames[frames.length - 1].arcLength
+	const target = Math.max(0, Math.min(totalLen, fraction * totalLen))
 
-function createFrozenInstances(mesh: Mesh, matrices: Matrix[]): void {
-	if (matrices.length === 0) return
-	const buf = new Float32Array(matrices.length * 16)
-	for (let i = 0; i < matrices.length; i++) {
-		matrices[i].copyToArray(buf, i * 16)
+	// Binary search for the segment containing the target arc length
+	let lo = 0, hi = frames.length - 1
+	while (lo < hi - 1) {
+		const mid = (lo + hi) >> 1
+		if (frames[mid].arcLength <= target) lo = mid
+		else hi = mid
 	}
-	mesh.thinInstanceSetBuffer('matrix', buf, 16)
-	mesh.thinInstanceRefreshBoundingInfo(false)
-	mesh.alwaysSelectAsActiveMesh = true
-	mesh.freezeWorldMatrix()
-	mesh.freezeNormals()
+
+	const s0 = frames[lo], s1 = frames[hi]
+	const seg = s1.arcLength - s0.arcLength
+	const f = seg > 0 ? (target - s0.arcLength) / seg : 0
+
+	return {
+		position: Vector3.Lerp(s0.position, s1.position, f),
+		tangent: Vector3.Lerp(s0.tangent, s1.tangent, f).normalize(),
+		normal: Vector3.Lerp(s0.normal, s1.normal, f).normalize(),
+		arcLength: target,
+	}
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -252,9 +185,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 					}
 				}
 
-				// ── Build template to get correct cross-section dimensions ──
-				// GLB is Z-up; rotation.x = -PI/2 converts to Y-up.
-				// Per-axis scaling maps raw extents to rafter profile dimensions.
+				// ── Build template: Z-up → Y-up, scale to rafter profile ──
 				const template = new TransformNode('arch-profile-template', scene)
 				for (const m of meshes) {
 					m.makeGeometryUnique()
@@ -270,7 +201,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 				template.rotation.x = -Math.PI / 2
 
 				template.computeWorldMatrix(true)
-				const rotBounds = measureWorldBounds(meshes, `arch-profile-${profile.width}-${profile.height}`)
+				const rotBounds = measureWorldBounds(meshes, `arch-rafter-${profile.width}-${profile.height}`)
 				if (rotBounds.size.x <= 0 || rotBounds.size.y <= 0 || rotBounds.size.z <= 0) {
 					template.dispose()
 					onLoadStateChange?.(false)
@@ -279,14 +210,13 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 
 				// After rotation.x = -PI/2:
 				//   scaling.x → World X (profile width)
-				//   scaling.z → World Y (length axis)
+				//   scaling.z → World Y (beam length — normalize to 1)
 				//   scaling.y → World Z (profile depth)
 				template.scaling.x = profile.width / rotBounds.size.x
 				template.scaling.z = 1.0 / rotBounds.size.y
 				template.scaling.y = profile.height / rotBounds.size.z
 
-				// Bake full world transform so vertices have correct
-				// cross-section dimensions in world space
+				// Bake full world transform into vertices
 				template.computeWorldMatrix(true)
 				for (const m of meshes) {
 					m.computeWorldMatrix(true)
@@ -296,56 +226,67 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 				}
 				template.dispose()
 
-				// ── Extract 2D cross-section contour from cap ───────────────
-				let shape = extractProfileContour(meshes)
-				if (!shape || shape.length < 3) {
-					shape = rectangularProfile(profile.width, profile.height)
-				}
-
-				// Loaded meshes only needed for contour extraction — dispose
-				for (const m of meshes) {
-					try { m.dispose() } catch { /* already gone */ }
-				}
-
 				if (controller.signal.aborted) {
+					for (const m of meshes) { try { m.dispose() } catch { /* */ } }
 					onLoadStateChange?.(false)
 					return
 				}
 
-				// ── Build arch centerline path ──────────────────────────────
-				const heightFn = makeFrameCenterlineHeightFn(specs)
-				const baseplateTop = specs.baseplate?.height ?? 0
-				const pathPoints: Vector3[] = []
-				const NUM_PATH_PTS = 128
-				for (let i = 0; i <= NUM_PATH_PTS; i++) {
-					const t = i / NUM_PATH_PTS
-					const x = -specs.archOuterSpan + t * 2 * specs.archOuterSpan
-					pathPoints.push(new Vector3(x, baseplateTop + heightFn(x), 0))
+				// ── Center the straight unit segment at the local origin ─────
+				const straightBounds = measureWorldBounds(meshes, `arch-straight-${profile.width}-${profile.height}`)
+				const centerX = (straightBounds.min.x + straightBounds.max.x) / 2
+				const centerY = (straightBounds.min.y + straightBounds.max.y) / 2
+				const centerZ = (straightBounds.min.z + straightBounds.max.z) / 2
+				const unitSegmentLength = straightBounds.size.y > 0 ? straightBounds.size.y : 1
+
+				for (const m of meshes) {
+					const pos = m.getVerticesData(VertexBuffer.PositionKind)
+					if (!pos) continue
+					for (let i = 0; i < pos.length; i += 3) {
+						pos[i] -= centerX
+						pos[i + 1] -= centerY
+						pos[i + 2] -= centerZ
+					}
+					m.setVerticesData(VertexBuffer.PositionKind, pos)
+					m.refreshBoundingInfo()
 				}
 
-				// ── Extrude cross-section along arch path ───────────────────
-				const archMesh = MeshBuilder.ExtrudeShape('arch-frame', {
-					shape,
-					path: pathPoints,
-					closeShape: true,
-					cap: Mesh.CAP_ALL,
-					updatable: false,
-				}, scene)
-
-				archMesh.material = archMat
-
-				// ── Thin instances: one arch per bay line ────────────────────
+				// ── Build the arch from many short profile segments ──────────
+				const archPathFrames = buildArchPathFrames(specs)
+				const totalArcLength = archPathFrames[archPathFrames.length - 1].arcLength
+				const segmentLength = totalArcLength / ARCH_SEGMENTS
 				const halfLength = (numBays * specs.bayDistance) / 2
-				const instanceMatrices: Matrix[] = []
-				for (let i = 0; i <= numBays; i++) {
-					instanceMatrices.push(
-						Matrix.Translation(0, 0, i * specs.bayDistance - halfLength),
-					)
+				const transforms: InstanceTransform[] = []
+
+				for (let bay = 0; bay <= numBays; bay++) {
+					const bayZ = bay * specs.bayDistance - halfLength
+
+					for (let segment = 0; segment < ARCH_SEGMENTS; segment++) {
+						const t = (segment + 0.5) / ARCH_SEGMENTS
+						const frame = sampleFrameAt(archPathFrames, t)
+						const rotationZ = Math.atan2(-frame.tangent.x, frame.tangent.y)
+
+						transforms.push({
+							position: new Vector3(frame.position.x, frame.position.y, bayZ),
+							rotation: new Vector3(0, 0, rotationZ),
+							scaling: new Vector3(1, (segmentLength / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+						})
+					}
 				}
 
-				archMesh.parent = root
-				createFrozenInstances(archMesh, instanceMatrices)
-				allDisposables.push(archMesh)
+				// ── Apply material and thin instances for bay lines ──────────
+				stripAndApplyMaterial(meshes, archMat)
+
+				for (const m of meshes) {
+					m.parent = root
+					m.position.setAll(0)
+					m.rotationQuaternion = null
+					m.rotation.setAll(0)
+					m.scaling.setAll(1)
+					m.setEnabled(true)
+					createFrozenThinInstances(m, transforms)
+					allDisposables.push(m)
+				}
 
 				onLoadStateChange?.(false)
 			})
