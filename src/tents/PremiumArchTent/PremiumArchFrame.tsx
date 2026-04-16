@@ -10,6 +10,7 @@ import { type FC, memo } from 'react'
 import type { TentSpecs } from '@/types'
 import { Baseplates } from '@/tents/SharedFrames/Baseplates'
 import { Uprights } from '@/tents/PremiumArchTent/15m/frame/Uprights'
+import { ArchFrames } from '@/tents/PremiumArchTent/15m/frame/ArchFrames'
 import { UprightConnectors } from '@/tents/SharedFrames/UprightConnectors'
 import { EaveSideBeams } from '@/tents/PremiumArchTent/15m/frame/EaveSideBeams'
 import { GableBeams } from '@/tents/PremiumArchTent/15m/frame/GableBeams'
@@ -36,6 +37,12 @@ export const PremiumArchFrame: FC<PremiumArchFrameProps> = memo(({
 			onLoadStateChange={onLoadStateChange}
 		/>
 		<Uprights
+			numBays={numBays}
+			specs={specs}
+			enabled={true}
+			onLoadStateChange={onLoadStateChange}
+		/>
+		<ArchFrames
 			numBays={numBays}
 			specs={specs}
 			enabled={true}

@@ -9,7 +9,7 @@ Add your GLB files here:
 public/tents/PremiumArchTent/15m/
 ├── frame/
 │   ├── baseplate.glb
-│   ├── upright.glb
+│   ├── mainProfile.glb
 │   ├── arch-frame.glb
 │   ├── ground-beam.glb
 │   ├── eave-side-beam.glb
@@ -65,7 +65,7 @@ public/tents/PremiumArchTent/15m/
 
 ### Step 2: Uprights ✅
 - **File**: `frame/Uprights.tsx`
-- **GLB**: `upright.glb`
+- **GLB**: `mainProfile.glb`
 - **Position**: X=±7.5m at each bay line
 - **Height**: baseplate top → eaveHeight - 150mm
 

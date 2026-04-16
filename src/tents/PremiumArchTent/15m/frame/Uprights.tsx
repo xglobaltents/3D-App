@@ -89,7 +89,7 @@ function applyMiterToVertices(
 // ─── Component ───────────────────────────────────────────────────────────────
 
 /**
- * Uprights — loads upright.glb, builds correctly scaled templates with
+ * Uprights — loads mainProfile.glb, builds correctly scaled templates with
  * miter-cut tops, then uses thin instances (GPU instancing) at every
  * bay line on both sides of the tent.
  *
@@ -126,7 +126,7 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 
 		onLoadStateChange?.(true)
 
-		loadGLB(scene, FRAME_PATH, 'upright.glb', controller.signal)
+		loadGLB(scene, FRAME_PATH, 'mainProfile.glb', controller.signal)
 			.then((loaded) => {
 				if (controller.signal.aborted) {
 					for (const m of loaded) m.dispose()

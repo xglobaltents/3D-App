@@ -230,7 +230,7 @@ function getVariantParts(specs: TentSpecs, tentType: TentType, variant: TentVari
     id: 'upright',
     label: `Upright ${variant} (${specs.profiles.upright.width * 1000}x${specs.profiles.upright.height * 1000})`,
     folder: framePath,
-    file: 'upright.glb',
+    file: 'mainProfile.glb',
     defaultScale: 0.001,
     initialAxisScale: uprightScale,
     registry: UPRIGHT_REG,
