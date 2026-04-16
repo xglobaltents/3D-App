@@ -15,6 +15,19 @@ interface ArchFramesProps {
 
 // ─── Piecewise centerline: straight rafters + Bézier crown ────────────────────
 
+function getArchCurveHalfSpan(specs: TentSpecs): number | null {
+	const rise = specs.ridgeHeight - specs.eaveHeight
+	const span = specs.archOuterSpan
+	const slope = Math.max(specs.rafterSlopeAtEave ?? 0, 0)
+	if (rise <= 0 || span <= 0 || slope <= 0) return null
+
+	const targetShoulder = rise * 0.8
+	const minCurve = span * 0.18
+	const maxCurve = span * 0.55
+	const inferred = span - targetShoulder / slope
+	return Math.min(Math.max(inferred, minCurve), maxCurve)
+}
+
 function makeFrameCenterlineHeightFn(specs: TentSpecs): (x: number) => number {
 	const rise = specs.ridgeHeight - specs.eaveHeight
 	const span = specs.archOuterSpan
@@ -30,11 +43,7 @@ function makeFrameCenterlineHeightFn(specs: TentSpecs): (x: number) => number {
 		}
 	}
 
-	const targetShoulder = rise * 0.8
-	const minCurve = span * 0.18
-	const maxCurve = span * 0.55
-	const inferred = span - targetShoulder / slope
-	const curveHalf = Math.min(Math.max(inferred, minCurve), maxCurve)
+	const curveHalf = getArchCurveHalfSpan(specs) ?? span
 	const shoulderH = Math.min(Math.max(slope * (span - curveHalf), 0), rise)
 	const shoulderY = specs.eaveHeight + shoulderH
 	const p0 = shoulderY
@@ -62,7 +71,8 @@ interface PathFrame {
 }
 
 const PATH_SAMPLES = 512
-const ARCH_SEGMENTS = 24
+const UNIFORM_SEGMENTS = 16
+const CROWN_SEGMENTS = 12
 const SEGMENT_OVERLAP = 1.03
 
 function buildArchPathFrames(specs: TentSpecs): PathFrame[] {
@@ -125,6 +135,24 @@ function sampleFrameAt(frames: PathFrame[], fraction: number): PathFrame {
 		normal: Vector3.Lerp(s0.normal, s1.normal, f).normalize(),
 		arcLength: target,
 	}
+}
+
+function sampleArcFractionAtX(frames: PathFrame[], targetX: number): number {
+	let lo = 0
+	let hi = frames.length - 1
+	while (lo < hi - 1) {
+		const mid = (lo + hi) >> 1
+		if (frames[mid].position.x <= targetX) lo = mid
+		else hi = mid
+	}
+
+	const left = frames[lo]
+	const right = frames[hi]
+	const dx = right.position.x - left.position.x
+	const blend = Math.abs(dx) > 1e-8 ? (targetX - left.position.x) / dx : 0
+	const arcLength = left.arcLength + (right.arcLength - left.arcLength) * Math.max(0, Math.min(1, blend))
+	const totalLen = frames[frames.length - 1].arcLength
+	return totalLen > 0 ? arcLength / totalLen : 0
 }
 
 // ─── Component ────────────────────────────────────────────────────────────────
@@ -243,22 +271,75 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 
 				const archPathFrames = buildArchPathFrames(specs)
 				const totalArcLength = archPathFrames[archPathFrames.length - 1].arcLength
-				const segmentLength = totalArcLength / ARCH_SEGMENTS
 				const halfLength = (numBays * specs.bayDistance) / 2
 				const transforms: InstanceTransform[] = []
+				const curveHalf = getArchCurveHalfSpan(specs)
+				const hasSeparateCrown = curveHalf !== null && curveHalf > 0 && curveHalf < specs.archOuterSpan
+
+				let crownStartFraction = 0
+				let crownEndFraction = 1
+				if (hasSeparateCrown) {
+					crownStartFraction = sampleArcFractionAtX(archPathFrames, -curveHalf)
+					crownEndFraction = sampleArcFractionAtX(archPathFrames, curveHalf)
+				}
+
+				const leftRafterArcLen = crownStartFraction * totalArcLength
+				const crownArcLen = Math.max(0, (crownEndFraction - crownStartFraction) * totalArcLength)
+				const rightRafterArcLen = Math.max(0, totalArcLength - crownEndFraction * totalArcLength)
 
 				for (let bay = 0; bay <= numBays; bay++) {
 					const bayZ = bay * specs.bayDistance - halfLength
 
-					for (let segment = 0; segment < ARCH_SEGMENTS; segment++) {
-						const t = (segment + 0.5) / ARCH_SEGMENTS
-						const frame = sampleFrameAt(archPathFrames, t)
-						const rotationZ = Math.atan2(-frame.tangent.x, frame.tangent.y)
+					if (!hasSeparateCrown) {
+						const segmentLength = totalArcLength / UNIFORM_SEGMENTS
+						for (let segment = 0; segment < UNIFORM_SEGMENTS; segment++) {
+							const t = (segment + 0.5) / UNIFORM_SEGMENTS
+							const frame = sampleFrameAt(archPathFrames, t)
+							const rotationZ = Math.atan2(-frame.tangent.x, frame.tangent.y)
 
+							transforms.push({
+								position: new Vector3(frame.position.x, frame.position.y, bayZ),
+								rotation: new Vector3(0, 0, rotationZ),
+								scaling: new Vector3(1, (segmentLength / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+							})
+						}
+						continue
+					}
+
+					if (leftRafterArcLen > 1e-4) {
+						const tMid = crownStartFraction / 2
+						const frame = sampleFrameAt(archPathFrames, tMid)
+						const rotationZ = Math.atan2(-frame.tangent.x, frame.tangent.y)
 						transforms.push({
 							position: new Vector3(frame.position.x, frame.position.y, bayZ),
 							rotation: new Vector3(0, 0, rotationZ),
-							scaling: new Vector3(1, (segmentLength / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+							scaling: new Vector3(1, (leftRafterArcLen / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+						})
+					}
+
+					if (crownArcLen > 1e-4) {
+						const crownSegmentArcLen = crownArcLen / CROWN_SEGMENTS
+						for (let segment = 0; segment < CROWN_SEGMENTS; segment++) {
+							const t = crownStartFraction + ((segment + 0.5) / CROWN_SEGMENTS) * (crownEndFraction - crownStartFraction)
+							const frame = sampleFrameAt(archPathFrames, t)
+							const rotationZ = Math.atan2(-frame.tangent.x, frame.tangent.y)
+
+							transforms.push({
+								position: new Vector3(frame.position.x, frame.position.y, bayZ),
+								rotation: new Vector3(0, 0, rotationZ),
+								scaling: new Vector3(1, (crownSegmentArcLen / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+							})
+						}
+					}
+
+					if (rightRafterArcLen > 1e-4) {
+						const tMid = crownEndFraction + (1 - crownEndFraction) / 2
+						const frame = sampleFrameAt(archPathFrames, tMid)
+						const rotationZ = Math.atan2(-frame.tangent.x, frame.tangent.y)
+						transforms.push({
+							position: new Vector3(frame.position.x, frame.position.y, bayZ),
+							rotation: new Vector3(0, 0, rotationZ),
+							scaling: new Vector3(1, (rightRafterArcLen / unitSegmentLength) * SEGMENT_OVERLAP, 1),
 						})
 					}
 				}
