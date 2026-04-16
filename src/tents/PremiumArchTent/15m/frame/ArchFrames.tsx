@@ -56,13 +56,13 @@ function makeFrameCenterlineHeightFn(specs: TentSpecs): (x: number) => number {
 
 interface PathFrame {
 	position: Vector3
-	tangent: Vector3   // unit tangent along path
-	normal: Vector3    // unit normal perpendicular in XY plane (outward from arch)
+	tangent: Vector3
+	normal: Vector3
 	arcLength: number
 }
 
 const PATH_SAMPLES = 512
-const ARCH_SEGMENTS = 128
+const ARCH_SEGMENTS = 24
 const SEGMENT_OVERLAP = 1.03
 
 function buildArchPathFrames(specs: TentSpecs): PathFrame[] {
@@ -83,7 +83,6 @@ function buildArchPathFrames(specs: TentSpecs): PathFrame[] {
 			cumLen += Vector3.Distance(frames[i - 1].position, pos)
 		}
 
-		// Central-difference tangent
 		const dt = 0.5 / PATH_SAMPLES
 		const tLo = Math.max(0, t - dt)
 		const tHi = Math.min(1, t + dt)
@@ -95,8 +94,6 @@ function buildArchPathFrames(specs: TentSpecs): PathFrame[] {
 		const tangent = tLen > 0
 			? new Vector3(tx / tLen, ty / tLen, 0)
 			: new Vector3(1, 0, 0)
-
-		// Normal: rotate tangent 90° CCW in XY → points outward from arch center
 		const normal = new Vector3(-tangent.y, tangent.x, 0)
 
 		frames.push({ position: pos, tangent, normal, arcLength: cumLen })
@@ -105,20 +102,20 @@ function buildArchPathFrames(specs: TentSpecs): PathFrame[] {
 	return frames
 }
 
-/** Interpolate path frame at a given arc-length fraction t ∈ [0,1] */
 function sampleFrameAt(frames: PathFrame[], fraction: number): PathFrame {
 	const totalLen = frames[frames.length - 1].arcLength
 	const target = Math.max(0, Math.min(totalLen, fraction * totalLen))
 
-	// Binary search for the segment containing the target arc length
-	let lo = 0, hi = frames.length - 1
+	let lo = 0
+	let hi = frames.length - 1
 	while (lo < hi - 1) {
 		const mid = (lo + hi) >> 1
 		if (frames[mid].arcLength <= target) lo = mid
 		else hi = mid
 	}
 
-	const s0 = frames[lo], s1 = frames[hi]
+	const s0 = frames[lo]
+	const s1 = frames[hi]
 	const seg = s1.arcLength - s0.arcLength
 	const f = seg > 0 ? (target - s0.arcLength) / seg : 0
 
@@ -154,7 +151,6 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 		const root = new TransformNode('arch-frames-root', scene)
 		const allDisposables: (TransformNode | Mesh)[] = [root]
 
-		// Clone material BEFORE async — backFaceCulling off for double-sided
 		const baseMat = getAluminumMaterial(scene)
 		const clonedMat = baseMat.clone('aluminum-arch')
 		if (clonedMat) clonedMat.backFaceCulling = false
@@ -178,14 +174,12 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 					return
 				}
 
-				// Dispose non-geometry clones
 				for (const m of loaded) {
 					if (!meshes.includes(m as Mesh)) {
 						try { m.dispose() } catch { /* already gone */ }
 					}
 				}
 
-				// ── Build template: Z-up → Y-up, scale to rafter profile ──
 				const template = new TransformNode('arch-profile-template', scene)
 				for (const m of meshes) {
 					m.makeGeometryUnique()
@@ -208,15 +202,10 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 					return
 				}
 
-				// After rotation.x = -PI/2:
-				//   scaling.x → World X (profile width)
-				//   scaling.z → World Y (beam length — normalize to 1)
-				//   scaling.y → World Z (profile depth)
 				template.scaling.x = profile.width / rotBounds.size.x
 				template.scaling.z = 1.0 / rotBounds.size.y
 				template.scaling.y = profile.height / rotBounds.size.z
 
-				// Bake full world transform into vertices
 				template.computeWorldMatrix(true)
 				for (const m of meshes) {
 					m.computeWorldMatrix(true)
@@ -227,12 +216,13 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 				template.dispose()
 
 				if (controller.signal.aborted) {
-					for (const m of meshes) { try { m.dispose() } catch { /* */ } }
+					for (const m of meshes) {
+						try { m.dispose() } catch { /* */ }
+					}
 					onLoadStateChange?.(false)
 					return
 				}
 
-				// ── Center the straight unit segment at the local origin ─────
 				const straightBounds = measureWorldBounds(meshes, `arch-straight-${profile.width}-${profile.height}`)
 				const centerX = (straightBounds.min.x + straightBounds.max.x) / 2
 				const centerY = (straightBounds.min.y + straightBounds.max.y) / 2
@@ -240,18 +230,17 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 				const unitSegmentLength = straightBounds.size.y > 0 ? straightBounds.size.y : 1
 
 				for (const m of meshes) {
-					const pos = m.getVerticesData(VertexBuffer.PositionKind)
-					if (!pos) continue
-					for (let i = 0; i < pos.length; i += 3) {
-						pos[i] -= centerX
-						pos[i + 1] -= centerY
-						pos[i + 2] -= centerZ
+					const positions = m.getVerticesData(VertexBuffer.PositionKind)
+					if (!positions) continue
+					for (let i = 0; i < positions.length; i += 3) {
+						positions[i] -= centerX
+						positions[i + 1] -= centerY
+						positions[i + 2] -= centerZ
 					}
-					m.setVerticesData(VertexBuffer.PositionKind, pos)
+					m.setVerticesData(VertexBuffer.PositionKind, positions)
 					m.refreshBoundingInfo()
 				}
 
-				// ── Build the arch from many short profile segments ──────────
 				const archPathFrames = buildArchPathFrames(specs)
 				const totalArcLength = archPathFrames[archPathFrames.length - 1].arcLength
 				const segmentLength = totalArcLength / ARCH_SEGMENTS
@@ -274,7 +263,6 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 					}
 				}
 
-				// ── Apply material and thin instances for bay lines ──────────
 				stripAndApplyMaterial(meshes, archMat)
 
 				for (const m of meshes) {
