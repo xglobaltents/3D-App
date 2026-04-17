@@ -1,7 +1,8 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
+import { loadGLB, stripAndApplyMaterial, measureWorldBounds } from '@/lib/utils/GLBLoader'
+import { makeFrameBottomHeightFn } from '@/lib/utils/archMath'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 
@@ -32,7 +33,6 @@ const FILE = 'gable-support-77x127.glb'
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 // Pitch 90° + Yaw 90° from PartBuilder export
 const PART_ROT_QUAT = Quaternion.FromEulerAngles(Math.PI / 2, Math.PI / 2, 0)
-
 interface GableSupportsProps {
   numBays: number
   specs: TentSpecs
@@ -89,6 +89,24 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
           meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
         }
 
+        const measureRoot = new TransformNode('gable-supports-measure', scene)
+        measureRoot.rotationQuaternion = new Quaternion()
+        allDisposables.push(measureRoot)
+        for (const mesh of geoMeshes) {
+          mesh.parent = measureRoot
+        }
+
+        const measureScale = new Vector3(1, 1, 1)
+        const measurePosition = new Vector3()
+        const measureInstanceBounds = (modelMatrix: Matrix, partMatrix: Matrix) => {
+          const combined = modelMatrix.multiply(partMatrix)
+          combined.decompose(measureScale, measureRoot.rotationQuaternion!, measurePosition)
+          measureRoot.scaling.copyFrom(measureScale)
+          measureRoot.position.copyFrom(measurePosition)
+          measureRoot.computeWorldMatrix(true)
+          return measureWorldBounds(geoMeshes)
+        }
+
         // ── Model scale: PartBuilder-calibrated constants ──
         const widthCorrection = specs.profiles.gableColumn.width / CALIBRATED_PROFILE_W
         const heightCorrection = specs.profiles.gableColumn.height / CALIBRATED_PROFILE_H
@@ -97,29 +115,52 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
 
         const baseplateTop = specs.baseplate?.height ?? 0
         const halfLength = (numBays * specs.bayDistance) / 2
-        const archFn = specs.getArchHeightAtEave
+        const archBottomFn = makeFrameBottomHeightFn(specs, specs.profiles.rafter.height, 0)
 
         // Build per-instance matrices (Z scale varies with arch height)
         interface InstanceDef { modelMatrix: Matrix; partMatrix: Matrix }
         const instances: InstanceDef[] = []
+        const makeModelMatrix = (scaleZ: number) => Matrix.Compose(
+          new Vector3(crossScaleX, crossScaleY, scaleZ),
+          MODEL_ROT_QUAT,
+          Vector3.Zero(),
+        )
+        const makePartMatrix = (gx: number, y: number, gz: number) => Matrix.Compose(
+          Vector3.One(),
+          PART_ROT_QUAT,
+          new Vector3(gx, y, gz),
+        )
 
         for (const gz of [-halfLength, halfLength]) {
           for (const gx of specs.gableSupportPositions) {
-            const topY = archFn ? archFn(gx) : specs.eaveHeight
-            const supportHeight = topY - baseplateTop
-            const scaleZ = Z_SCALE_PER_METER * supportHeight
+          const topY = Math.max(baseplateTop, baseplateTop + archBottomFn(gx))
+          const supportHeight = topY - baseplateTop
+          if (supportHeight <= 1e-4) continue
 
-            const modelScale = new Vector3(crossScaleX, crossScaleY, scaleZ)
-            const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
+          let scaleZ = Z_SCALE_PER_METER * supportHeight
+          let modelMatrix = makeModelMatrix(scaleZ)
+          let partY = baseplateTop
+          let partMatrix = makePartMatrix(gx, partY, gz)
+          let bounds = measureInstanceBounds(modelMatrix, partMatrix)
 
-            const partMatrix = Matrix.Compose(
-              Vector3.One(), PART_ROT_QUAT,
-              new Vector3(gx, baseplateTop, gz)
-            )
+          const actualHeight = bounds.max.y - bounds.min.y
+          if (actualHeight > 1e-6) {
+            scaleZ *= supportHeight / actualHeight
+            modelMatrix = makeModelMatrix(scaleZ)
+            bounds = measureInstanceBounds(modelMatrix, partMatrix)
+          }
 
-            instances.push({ modelMatrix, partMatrix })
+          partY += baseplateTop - bounds.min.y
+          partMatrix = makePartMatrix(gx, partY, gz)
+
+          instances.push({ modelMatrix, partMatrix })
           }
         }
+
+        for (const mesh of geoMeshes) {
+          mesh.parent = root
+        }
+        try { measureRoot.dispose() } catch {}
 
         // ── Thin instances ──
         for (const src of geoMeshes) {

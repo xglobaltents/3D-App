@@ -1,64 +1,18 @@
 import { type FC, memo, useEffect, useRef } from 'react'
-import { TransformNode, Vector3, Mesh, VertexBuffer } from '@babylonjs/core'
+import { TransformNode, Vector2, Vector3, Mesh, VertexBuffer, VertexData, PolygonMeshBuilder, type Scene } from '@babylonjs/core'
 import { useScene } from '@/engine/BabylonProvider'
-import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { loadGLB, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { getArchCurveHalfSpan, makeFrameCenterlineHeightFn } from '@/lib/utils/archMath'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 import { FRAME_PATH } from '../specs'
+import earcut from 'earcut'
 
 interface ArchFramesProps {
 	numBays: number
 	specs: TentSpecs
 	enabled?: boolean
 	onLoadStateChange?: (loading: boolean) => void
-}
-
-// ─── Piecewise centerline: straight rafters + Bézier crown ────────────────────
-
-function getArchCurveHalfSpan(specs: TentSpecs): number | null {
-	const rise = specs.ridgeHeight - specs.eaveHeight
-	const span = specs.archOuterSpan
-	const slope = Math.max(specs.rafterSlopeAtEave ?? 0, 0)
-	if (rise <= 0 || span <= 0 || slope <= 0) return null
-
-	const targetShoulder = rise * 0.8
-	const minCurve = span * 0.18
-	const maxCurve = span * 0.55
-	const inferred = span - targetShoulder / slope
-	return Math.min(Math.max(inferred, minCurve), maxCurve)
-}
-
-function makeFrameCenterlineHeightFn(specs: TentSpecs): (x: number) => number {
-	const rise = specs.ridgeHeight - specs.eaveHeight
-	const span = specs.archOuterSpan
-	if (rise <= 0 || span <= 0) return () => specs.eaveHeight
-
-	const slope = Math.max(specs.rafterSlopeAtEave ?? 0, 0)
-	if (slope <= 0) {
-		const R = (span * span + rise * rise) / (2 * rise)
-		const centerY = specs.ridgeHeight - R
-		return (x: number) => {
-			const ax = Math.abs(x)
-			return ax >= span ? specs.eaveHeight : centerY + Math.sqrt(R * R - ax * ax)
-		}
-	}
-
-	const curveHalf = getArchCurveHalfSpan(specs) ?? span
-	const shoulderH = Math.min(Math.max(slope * (span - curveHalf), 0), rise)
-	const shoulderY = specs.eaveHeight + shoulderH
-	const p0 = shoulderY
-	const p1 = shoulderY + (slope * curveHalf) / 3
-	const p2 = specs.ridgeHeight
-	const p3 = specs.ridgeHeight
-
-	return (x: number) => {
-		const ax = Math.abs(x)
-		if (ax >= span) return specs.eaveHeight
-		if (ax >= curveHalf) return specs.eaveHeight + slope * (span - ax)
-		const t = 1 - ax / curveHalf
-		const mt = 1 - t
-		return mt * mt * mt * p0 + 3 * mt * mt * t * p1 + 3 * mt * t * t * p2 + t * t * t * p3
-	}
 }
 
 // ─── Arc-length parameterized arch path with Frenet frames ────────────────────
@@ -155,6 +109,294 @@ function sampleArcFractionAtX(frames: PathFrame[], targetX: number): number {
 	return totalLen > 0 ? arcLength / totalLen : 0
 }
 
+interface ProfileShape {
+	outer: Vector2[]
+	holes: Vector2[][]
+}
+
+const PROFILE_WALL_RATIO = 0.12
+const PROFILE_CORNER_RATIO = 0.18
+
+function edgeKey(a: number, b: number): string {
+	return a < b ? `${a}:${b}` : `${b}:${a}`
+}
+
+function signedArea(points: Vector2[]): number {
+	let area = 0
+	for (let i = 0; i < points.length; i++) {
+		const p0 = points[i]
+		const p1 = points[(i + 1) % points.length]
+		area += p0.x * p1.y - p1.x * p0.y
+	}
+	return area * 0.5
+}
+
+function normalizeLoop(points: Vector2[], clockwise: boolean): Vector2[] {
+	const area = signedArea(points)
+	const shouldReverse = clockwise ? area > 0 : area < 0
+	return shouldReverse ? [...points].reverse() : points
+}
+
+function buildRoundedRectLoop(width: number, height: number, corner: number): Vector2[] {
+	const halfWidth = width / 2
+	const halfHeight = height / 2
+	const chamfer = Math.max(0, Math.min(corner, halfWidth, halfHeight))
+
+	if (chamfer <= 1e-6) {
+		return [
+			new Vector2(-halfWidth, -halfHeight),
+			new Vector2(halfWidth, -halfHeight),
+			new Vector2(halfWidth, halfHeight),
+			new Vector2(-halfWidth, halfHeight),
+		]
+	}
+
+	return [
+		new Vector2(-halfWidth + chamfer, -halfHeight),
+		new Vector2(halfWidth - chamfer, -halfHeight),
+		new Vector2(halfWidth, -halfHeight + chamfer),
+		new Vector2(halfWidth, halfHeight - chamfer),
+		new Vector2(halfWidth - chamfer, halfHeight),
+		new Vector2(-halfWidth + chamfer, halfHeight),
+		new Vector2(-halfWidth, halfHeight - chamfer),
+		new Vector2(-halfWidth, -halfHeight + chamfer),
+	]
+}
+
+function buildFallbackProfileShape(width: number, height: number): ProfileShape {
+	const wallThickness = Math.min(width, height) * PROFILE_WALL_RATIO
+	const outerCorner = Math.min(width, height) * PROFILE_CORNER_RATIO
+	const innerWidth = Math.max(width - wallThickness * 2, wallThickness)
+	const innerHeight = Math.max(height - wallThickness * 2, wallThickness)
+	const innerCorner = Math.max(0, outerCorner - wallThickness)
+
+	const outer = normalizeLoop(buildRoundedRectLoop(width, height, outerCorner), true)
+	const holes = innerWidth > 1e-4 && innerHeight > 1e-4
+		? [normalizeLoop(buildRoundedRectLoop(innerWidth, innerHeight, innerCorner), false)]
+		: []
+
+	return { outer, holes }
+}
+
+function buildLoopsFromEdges(allPositions: number[], boundaryEdges: Array<[number, number]>): Vector2[][] {
+	if (boundaryEdges.length < 3) return []
+
+	const adjacency = new Map<number, number[]>()
+	for (const [a, b] of boundaryEdges) {
+		const aNeighbors = adjacency.get(a) ?? []
+		aNeighbors.push(b)
+		adjacency.set(a, aNeighbors)
+
+		const bNeighbors = adjacency.get(b) ?? []
+		bNeighbors.push(a)
+		adjacency.set(b, bNeighbors)
+	}
+
+	const visitedEdges = new Set<string>()
+	const loops: Vector2[][] = []
+
+	for (const [start, initialNext] of boundaryEdges) {
+		const startEdge = edgeKey(start, initialNext)
+		if (visitedEdges.has(startEdge)) continue
+
+		const vertexLoop = [start]
+		let prev = start
+		let current = initialNext
+		visitedEdges.add(startEdge)
+
+		while (current !== start) {
+			vertexLoop.push(current)
+			const neighbors = adjacency.get(current) ?? []
+			const next = neighbors.find((candidate) => {
+				if (candidate === prev) return false
+				if (candidate === start) return true
+				return !visitedEdges.has(edgeKey(current, candidate))
+			}) ?? neighbors.find((candidate) => candidate !== prev)
+
+			if (next === undefined) {
+				vertexLoop.length = 0
+				break
+			}
+
+			const nextEdge = edgeKey(current, next)
+			if (visitedEdges.has(nextEdge) && next !== start) {
+				vertexLoop.length = 0
+				break
+			}
+
+			visitedEdges.add(nextEdge)
+			prev = current
+			current = next
+		}
+
+		if (vertexLoop.length < 3) continue
+		loops.push(vertexLoop.map((vertex) => new Vector2(
+			allPositions[vertex * 3],
+			allPositions[vertex * 3 + 2],
+		)))
+	}
+
+	return loops
+}
+
+function extractCapLoops(
+	allPositions: number[],
+	allIndices: number[],
+	targetY: number,
+	tolerance: number,
+	allEdgeCounts: Map<string, number>,
+): Vector2[][] {
+	const planeVertices = new Set<number>()
+	for (let vertex = 0; vertex < allPositions.length / 3; vertex++) {
+		if (Math.abs(allPositions[vertex * 3 + 1] - targetY) < tolerance) {
+			planeVertices.add(vertex)
+		}
+	}
+	if (planeVertices.size < 3) return []
+
+	const openEndEdges: Array<[number, number]> = []
+	for (const [key, count] of allEdgeCounts.entries()) {
+		if (count !== 1) continue
+		const [a, b] = key.split(':').map(Number)
+		if (planeVertices.has(a) && planeVertices.has(b)) {
+			openEndEdges.push([a, b])
+		}
+	}
+	if (openEndEdges.length >= 3) {
+		return buildLoopsFromEdges(allPositions, openEndEdges)
+	}
+
+	const capEdgeCounts = new Map<string, number>()
+	for (let i = 0; i < allIndices.length; i += 3) {
+		const a = allIndices[i]
+		const b = allIndices[i + 1]
+		const c = allIndices[i + 2]
+		if (!planeVertices.has(a) || !planeVertices.has(b) || !planeVertices.has(c)) continue
+
+		for (const [u, v] of [[a, b], [b, c], [c, a]] as const) {
+			const key = edgeKey(u, v)
+			capEdgeCounts.set(key, (capEdgeCounts.get(key) ?? 0) + 1)
+		}
+	}
+
+	const cappedEdges: Array<[number, number]> = []
+	for (const [key, count] of capEdgeCounts.entries()) {
+		if (count !== 1) continue
+		const [a, b] = key.split(':').map(Number)
+		cappedEdges.push([a, b])
+	}
+
+	return buildLoopsFromEdges(allPositions, cappedEdges)
+}
+
+function extractProfileShape(meshes: Mesh[]): ProfileShape | null {
+	const allPositions: number[] = []
+	const allIndices: number[] = []
+	let vertexOffset = 0
+
+	for (const mesh of meshes) {
+		const positions = mesh.getVerticesData(VertexBuffer.PositionKind)
+		const indices = mesh.getIndices()
+		if (!positions || !indices) continue
+		for (let i = 0; i < positions.length; i++) {
+			allPositions.push(positions[i])
+		}
+		for (let i = 0; i < indices.length; i++) {
+			allIndices.push(indices[i] + vertexOffset)
+		}
+		vertexOffset += positions.length / 3
+	}
+
+	if (allPositions.length < 9 || allIndices.length < 3) return null
+
+	let minY = Infinity
+	let maxY = -Infinity
+	for (let i = 1; i < allPositions.length; i += 3) {
+		minY = Math.min(minY, allPositions[i])
+		maxY = Math.max(maxY, allPositions[i])
+	}
+	const yRange = maxY - minY
+	if (yRange <= 0) return null
+
+	const tolerance = yRange * 0.005
+	const allEdgeCounts = new Map<string, number>()
+	for (let i = 0; i < allIndices.length; i += 3) {
+		const a = allIndices[i]
+		const b = allIndices[i + 1]
+		const c = allIndices[i + 2]
+
+		for (const [u, v] of [[a, b], [b, c], [c, a]] as const) {
+			const key = edgeKey(u, v)
+			allEdgeCounts.set(key, (allEdgeCounts.get(key) ?? 0) + 1)
+		}
+	}
+
+	const minLoops = extractCapLoops(allPositions, allIndices, minY, tolerance, allEdgeCounts)
+	const maxLoops = extractCapLoops(allPositions, allIndices, maxY, tolerance, allEdgeCounts)
+	const loops = minLoops.length > 0 ? minLoops : maxLoops
+	if (loops.length === 0) return null
+
+	let outerIndex = 0
+	let largestArea = 0
+	for (let i = 0; i < loops.length; i++) {
+		const area = Math.abs(signedArea(loops[i]))
+		if (area > largestArea) {
+			largestArea = area
+			outerIndex = i
+		}
+	}
+
+	const outer = loops[outerIndex]
+	let minX = Infinity
+	let maxX = -Infinity
+	let minY2 = Infinity
+	let maxY2 = -Infinity
+	for (const point of outer) {
+		minX = Math.min(minX, point.x)
+		maxX = Math.max(maxX, point.x)
+		minY2 = Math.min(minY2, point.y)
+		maxY2 = Math.max(maxY2, point.y)
+	}
+	const centerX = (minX + maxX) / 2
+	const centerY = (minY2 + maxY2) / 2
+
+	const recenter = (points: Vector2[]) => points.map((point) => new Vector2(
+		point.x - centerX,
+		point.y - centerY,
+	))
+
+	return {
+		outer: normalizeLoop(recenter(outer), true),
+		holes: loops
+			.filter((_, index) => index !== outerIndex)
+			.map((loop) => normalizeLoop(recenter(loop), false)),
+	}
+}
+
+function buildProfileSegmentMesh(scene: Scene, shape: ProfileShape): Mesh {
+	const builder = new PolygonMeshBuilder('arch-frame-segment', shape.outer, scene, earcut)
+	for (const hole of shape.holes) {
+		builder.addHole(hole)
+	}
+
+	const mesh = builder.build(false, 1)
+	const positions = mesh.getVerticesData(VertexBuffer.PositionKind)
+	const indices = mesh.getIndices()
+	if (positions) {
+		for (let i = 0; i < positions.length; i += 3) {
+			positions[i + 1] += 0.5
+		}
+		mesh.setVerticesData(VertexBuffer.PositionKind, positions)
+	}
+	if (positions && indices) {
+		const normals: number[] = []
+		VertexData.ComputeNormals(positions, indices, normals)
+		mesh.setVerticesData(VertexBuffer.NormalKind, normals)
+	}
+	mesh.refreshBoundingInfo()
+	return mesh
+}
+
 // ─── Component ────────────────────────────────────────────────────────────────
 
 export const ArchFrames: FC<ArchFramesProps> = memo(({
@@ -181,7 +423,10 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 
 		const baseMat = getAluminumMaterial(scene)
 		const clonedMat = baseMat.clone('aluminum-arch')
-		if (clonedMat) clonedMat.backFaceCulling = false
+		if (clonedMat) {
+			clonedMat.backFaceCulling = false
+			clonedMat.twoSidedLighting = true
+		}
 		const archMat = clonedMat ?? baseMat
 
 		const profile = specs.profiles.rafter
@@ -251,23 +496,22 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 					return
 				}
 
-				const straightBounds = measureWorldBounds(meshes, `arch-straight-${profile.width}-${profile.height}`)
-				const centerX = (straightBounds.min.x + straightBounds.max.x) / 2
-				const centerY = (straightBounds.min.y + straightBounds.max.y) / 2
-				const centerZ = (straightBounds.min.z + straightBounds.max.z) / 2
-				const unitSegmentLength = straightBounds.size.y > 0 ? straightBounds.size.y : 1
-
+				const profileShape = extractProfileShape(meshes)
 				for (const m of meshes) {
-					const positions = m.getVerticesData(VertexBuffer.PositionKind)
-					if (!positions) continue
-					for (let i = 0; i < positions.length; i += 3) {
-						positions[i] -= centerX
-						positions[i + 1] -= centerY
-						positions[i + 2] -= centerZ
-					}
-					m.setVerticesData(VertexBuffer.PositionKind, positions)
-					m.refreshBoundingInfo()
+					try { m.dispose() } catch { /* already gone */ }
 				}
+
+				const proceduralProfileShape = buildFallbackProfileShape(profile.width, profile.height)
+				if (!profileShape) {
+					console.warn('[ArchFrames] Falling back to procedural hollow profile')
+				}
+
+				let segmentMesh = buildProfileSegmentMesh(scene, profileShape ?? proceduralProfileShape)
+				if (segmentMesh.getTotalIndices() <= 0) {
+					segmentMesh.dispose()
+					segmentMesh = buildProfileSegmentMesh(scene, proceduralProfileShape)
+				}
+				segmentMesh.material = archMat
 
 				const archPathFrames = buildArchPathFrames(specs)
 				const totalArcLength = archPathFrames[archPathFrames.length - 1].arcLength
@@ -300,7 +544,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 							transforms.push({
 								position: new Vector3(frame.position.x, frame.position.y, bayZ),
 								rotation: new Vector3(0, 0, rotationZ),
-								scaling: new Vector3(1, (segmentLength / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+								scaling: new Vector3(1, segmentLength * SEGMENT_OVERLAP, 1),
 							})
 						}
 						continue
@@ -313,7 +557,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 						transforms.push({
 							position: new Vector3(frame.position.x, frame.position.y, bayZ),
 							rotation: new Vector3(0, 0, rotationZ),
-							scaling: new Vector3(1, (leftRafterArcLen / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+							scaling: new Vector3(1, leftRafterArcLen * SEGMENT_OVERLAP, 1),
 						})
 					}
 
@@ -327,7 +571,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 							transforms.push({
 								position: new Vector3(frame.position.x, frame.position.y, bayZ),
 								rotation: new Vector3(0, 0, rotationZ),
-								scaling: new Vector3(1, (crownSegmentArcLen / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+								scaling: new Vector3(1, crownSegmentArcLen * SEGMENT_OVERLAP, 1),
 							})
 						}
 					}
@@ -339,23 +583,19 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 						transforms.push({
 							position: new Vector3(frame.position.x, frame.position.y, bayZ),
 							rotation: new Vector3(0, 0, rotationZ),
-							scaling: new Vector3(1, (rightRafterArcLen / unitSegmentLength) * SEGMENT_OVERLAP, 1),
+							scaling: new Vector3(1, rightRafterArcLen * SEGMENT_OVERLAP, 1),
 						})
 					}
 				}
 
-				stripAndApplyMaterial(meshes, archMat)
-
-				for (const m of meshes) {
-					m.parent = root
-					m.position.setAll(0)
-					m.rotationQuaternion = null
-					m.rotation.setAll(0)
-					m.scaling.setAll(1)
-					m.setEnabled(true)
-					createFrozenThinInstances(m, transforms)
-					allDisposables.push(m)
-				}
+				segmentMesh.parent = root
+				segmentMesh.position.setAll(0)
+				segmentMesh.rotationQuaternion = null
+				segmentMesh.rotation.setAll(0)
+				segmentMesh.scaling.setAll(1)
+				segmentMesh.setEnabled(true)
+				createFrozenThinInstances(segmentMesh, transforms)
+				allDisposables.push(segmentMesh)
 
 				onLoadStateChange?.(false)
 			})
