@@ -3,34 +3,25 @@ import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import { GABLE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 import type { TentSpecs } from '@/types'
 
 // ═════════════════════════════════════════════════════════════
-// Part:  Gable Beam (127x76) — 0.03m above eave (in arch zone)
+// Part:  Gable Beam (127x76) — 0.06m above eave (in arch zone)
 // GLB:   /tents/SharedFrames/gable-beam-80x150.glb
 //
 // Instance at front + back gable.
 //
-// Calibrated at: 15m width, 127×76mm gableBeam profile.
-// Scale adapts dynamically to tent width and profile dimensions.
+// Scaling follows the shared registry mapping so runtime matches
+// PartBuilder for this GLB.
 // ═════════════════════════════════════════════════════════════
 
 const FOLDER = '/tents/SharedFrames/'
 const FILE = 'gable-beam-80x150.glb'
 
-// ── Calibration reference (15m tent, 127×76mm profile) ──
-// Raw vertex extents (from GLB vertex buffer, no parent transforms):
-//   X = 435 (profile height face), Y = 809 (profile width face), Z = 50 (length)
-// Axis mapping:  X,Y = cross-section,  Z = beam length (tent width)
-const CALIB_WIDTH = 15
-const CALIB_PROFILE_W = 0.127
-const CALIB_PROFILE_H = 0.076
-const BASE_SCALE_X = 0.0001747  // profile height face — 76mm / raw 435
-const BASE_SCALE_Y = 0.000157   // profile width face  — 127mm / raw 809
-const BASE_SCALE_Z = 0.2985     // length axis — scales with tent width
-
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 const PART_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI / 2, 0) // yaw 90°
+const GABLE_BEAM_EAVE_OFFSET = 0.06
 
 interface GableBeamsProps {
   numBays: number
@@ -94,18 +85,23 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
           meshLocals.set(mesh, Matrix.Compose(mesh.scaling.clone(), rot, mesh.position.clone()))
         }
 
-        // ── Model transform (dynamic from specs) ──
-        const profile = specs.profiles.gableBeam
-        const modelScale = new Vector3(
-          BASE_SCALE_X * (profile.height / CALIB_PROFILE_H),  // X = profile height face
-          BASE_SCALE_Y * (profile.width / CALIB_PROFILE_W),   // Y = profile width face
-          BASE_SCALE_Z * (specs.width / CALIB_WIDTH),          // Z = beam length
+        // ── Model transform (dynamic from shared registry) ──
+        const regScale = computePartScale(GABLE_BEAM_REG, {
+          profiles: specs.profiles,
+          bayDistance: specs.bayDistance,
+          eaveHeight: specs.eaveHeight,
+          tentWidth: specs.width,
+          halfWidth: specs.halfWidth,
+        })
+        const modelMatrix = Matrix.Compose(
+          new Vector3(regScale.x, regScale.y, regScale.z),
+          MODEL_ROT_QUAT,
+          Vector3.Zero(),
         )
-        const modelMatrix = Matrix.Compose(modelScale, MODEL_ROT_QUAT, Vector3.Zero())
 
         // ── Placement: instances at front and back gables ──
         const baseplateTop = specs.baseplate?.height ?? 0
-        const beamY = baseplateTop + specs.eaveHeight + 0.03
+        const beamY = baseplateTop + specs.eaveHeight + GABLE_BEAM_EAVE_OFFSET
         const halfLength = (numBays * specs.bayDistance) / 2
 
         const partMatrices: Matrix[] = [

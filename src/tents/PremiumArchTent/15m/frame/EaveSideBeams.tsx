@@ -24,6 +24,8 @@ const FILE = 'eave-side-beam.glb'
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 const PART_ROT_LEFT = Quaternion.FromEulerAngles(0, 0, -Math.PI)
 const PART_ROT_RIGHT = Quaternion.FromEulerAngles(0, Math.PI, -Math.PI)
+const EAVE_SIDE_BEAM_OUTWARD_OFFSET = 0.19
+const EAVE_SIDE_BEAM_EAVE_OFFSET = 0.08
 
 interface EaveSideBeamsProps {
   numBays: number
@@ -94,10 +96,8 @@ export const EaveSideBeams: FC<EaveSideBeamsProps> = memo(({
 
         // ── Placement: Pattern A — one per bay span × 2 sides ──
         const baseplateTop = specs.baseplate?.height ?? 0
-        // Beam center sits half a beam profile below eave top
-        const eaveY = baseplateTop + specs.eaveHeight - specs.profiles.eaveBeam.height / 2
-        // Beam sits outside upright: halfWidth + upright depth + beam depth
-        const xOffset = specs.halfWidth + specs.profiles.upright.height + specs.profiles.eaveBeam.height
+        const eaveY = baseplateTop + specs.eaveHeight + EAVE_SIDE_BEAM_EAVE_OFFSET
+        const xOffset = specs.halfWidth + EAVE_SIDE_BEAM_OUTWARD_OFFSET
         const halfLength = (numBays * specs.bayDistance) / 2
 
         const partMatrices: Matrix[] = []

@@ -165,10 +165,10 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       registry: EAVE_SIDE_BEAM_REG,
       axisLabels: eaveSideLabels,
       modelRotation: { x: 0, y: Math.PI, z: 0 },
-      getDefaultPosition: ({ specs: s, baseplateTop }) => ({
+      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
         x: s.halfWidth + 0.19,
-        y: baseplateTop + s.eaveHeight - 0.1,
-        z: 0,
+        y: baseplateTop + s.eaveHeight + 0.08,
+        z: firstLineZ + s.bayDistance * 1.5,
         rz: -Math.PI,
       }),
     },
@@ -183,7 +183,7 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       modelRotation: { x: 0, y: Math.PI, z: 0 },
       getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
         x: 0,
-        y: baseplateTop + s.eaveHeight,
+        y: baseplateTop + s.eaveHeight + 0.06,
         z: firstLineZ,
         ry: Math.PI / 2,
       }),

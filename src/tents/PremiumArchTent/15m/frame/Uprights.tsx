@@ -123,6 +123,10 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 		const root = new TransformNode('uprights-root', scene)
 		const allDisposables: (Mesh | TransformNode)[] = [root]
 		const aluminumMat = getAluminumMaterial(scene)
+		const uprightHeight = Math.max(
+			specs.uprightHeight ?? specs.eaveHeight,
+			0,
+		)
 
 		onLoadStateChange?.(true)
 
@@ -199,14 +203,14 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 				template.computeWorldMatrix(true)
 
 				const profile = specs.profiles.upright
-				const rotatedBounds = measureWorldBounds(templateMeshes, `uprights-rotated-${profile.width}-${profile.height}-${specs.eaveHeight}`)
+				const rotatedBounds = measureWorldBounds(templateMeshes, `uprights-rotated-${profile.width}-${profile.height}-${uprightHeight}`)
 				if (rotatedBounds.size.x > 0) {
 					template.scaling.x = profile.width / rotatedBounds.size.x
 				}
 				// rotation.x = -PI/2 swaps local Y<->Z in world space:
 				//   scaling.z -> world Y (height), scaling.y -> world Z (depth)
 				if (rotatedBounds.size.y > 0) {
-					template.scaling.z = specs.eaveHeight / rotatedBounds.size.y
+					template.scaling.z = uprightHeight / rotatedBounds.size.y
 				}
 				if (rotatedBounds.size.z > 0) {
 					template.scaling.y = profile.height / rotatedBounds.size.z

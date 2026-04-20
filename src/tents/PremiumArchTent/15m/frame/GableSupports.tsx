@@ -115,7 +115,7 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
 
         const baseplateTop = specs.baseplate?.height ?? 0
         const halfLength = (numBays * specs.bayDistance) / 2
-        const archBottomFn = makeFrameBottomHeightFn(specs, specs.profiles.rafter.height, 0)
+        const archBottomFn = makeFrameBottomHeightFn(specs, specs.profiles.rafter.width, 0)
 
         // Build per-instance matrices (Z scale varies with arch height)
         interface InstanceDef { modelMatrix: Matrix; partMatrix: Matrix }
