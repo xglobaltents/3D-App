@@ -8,9 +8,23 @@ interface CacheEntry {
   sceneUid: string
   /** World matrix of each mesh at import time (with full parent hierarchy). Keyed by mesh name. */
   worldMatrices: Map<string, Matrix>
+  /** GLTF root transform captured from the import result's transformNodes. */
+  rootTransform?: Matrix
 }
 
 const glbCache = new Map<string, CacheEntry>()
+
+function getImportRootTransform(result: {
+  transformNodes: { name: string; parent: unknown; computeWorldMatrix: (force?: boolean) => Matrix; getWorldMatrix: () => Matrix }[]
+}): Matrix | undefined {
+  const rootNode = result.transformNodes.find((node) => node.name === '__root__')
+    ?? result.transformNodes.find((node) => !node.parent)
+
+  if (!rootNode) return undefined
+
+  rootNode.computeWorldMatrix(true)
+  return rootNode.getWorldMatrix().clone()
+}
 
 /**
  * Clear all cached GLB template meshes. Call on scene teardown.
@@ -87,13 +101,14 @@ export async function loadGLB(
       worldMatrices.set(m.name, m.getWorldMatrix().clone())
     }
   }
+  const rootTransform = getImportRootTransform(result)
 
   // Store originals as hidden templates — callers get clones so
   // disposing clones never poisons the cache.
   for (const m of result.meshes) {
     m.setEnabled(false)
   }
-  glbCache.set(key, { meshes: result.meshes, sceneUid: scene.uid, worldMatrices })
+  glbCache.set(key, { meshes: result.meshes, sceneUid: scene.uid, worldMatrices, rootTransform })
 
   return cloneTemplates(result.meshes)
 }
@@ -111,6 +126,18 @@ export function getGLBWorldMatrices(
 ): Map<string, Matrix> | undefined {
   const key = folder + filename
   return glbCache.get(key)?.worldMatrices
+}
+
+/**
+ * Retrieve the cached GLTF root transform captured from result.transformNodes.
+ * This is the actual model-level scale/rotation applied by Babylon's GLTF loader.
+ */
+export function getGLBRootTransform(
+  folder: string,
+  filename: string,
+): Matrix | undefined {
+  const key = folder + filename
+  return glbCache.get(key)?.rootTransform?.clone()
 }
 
 /**

@@ -1,3 +1,4 @@
+import { Vector3 } from '@babylonjs/core'
 import type { Mesh, TransformNode, Material, AbstractMesh } from '@babylonjs/core'
 
 /* ─── Math Helpers ────────────────────────────────────────────────────────── */
@@ -15,6 +16,37 @@ export function degToRad(d: number): number {
 /** Round to 4 decimal places. */
 export function roundTo4(n: number): number {
   return Math.round(n * 10000) / 10000
+}
+
+/** Wrap an angle in radians to the [-PI, PI] range for stable display/export. */
+export function wrapRadians(angle: number): number {
+  const wrapped = ((angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI
+  if (Math.abs(wrapped) < 1e-6) return 0
+  if (Math.abs(Math.abs(wrapped) - Math.PI) < 1e-6) return wrapped < 0 ? -Math.PI : Math.PI
+  return wrapped
+}
+
+/**
+ * Euler angles are not unique. Choose the equivalent representation with the
+ * smaller total rotation magnitude so mirrored part output stays human-readable.
+ */
+export function canonicalizeEulerDisplay(rotation: Vector3): Vector3 {
+  const primary = new Vector3(
+    wrapRadians(rotation.x),
+    wrapRadians(rotation.y),
+    wrapRadians(rotation.z),
+  )
+
+  const alternate = new Vector3(
+    wrapRadians(primary.x + Math.PI),
+    wrapRadians(Math.PI - primary.y),
+    wrapRadians(primary.z + Math.PI),
+  )
+
+  const primaryScore = Math.abs(primary.x) + Math.abs(primary.y) + Math.abs(primary.z)
+  const alternateScore = Math.abs(alternate.x) + Math.abs(alternate.y) + Math.abs(alternate.z)
+
+  return alternateScore + 1e-6 < primaryScore ? alternate : primary
 }
 
 /** Snap a value to the nearest grid increment. */

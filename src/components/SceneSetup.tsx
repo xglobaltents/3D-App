@@ -163,6 +163,8 @@ interface EnvTextureResult {
   dispose(): void
 }
 
+const IBL_FAILOVER_TIMEOUT_MS = 1000
+
 function setupEnvironmentTexture(
   scene: BScene,
   url: string,
@@ -182,7 +184,7 @@ function setupEnvironmentTexture(
         scene.environmentTexture = null
         createProceduralEnvironment(scene)
       }
-    }, 3000)
+    }, IBL_FAILOVER_TIMEOUT_MS)
 
     envTex.onLoadObservable.addOnce(() => {
       if (iblFailoverTimer != null) window.clearTimeout(iblFailoverTimer)

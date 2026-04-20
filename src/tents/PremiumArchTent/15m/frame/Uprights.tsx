@@ -3,8 +3,10 @@ import { useScene } from '@/engine/BabylonProvider'
 import { Mesh, TransformNode, Vector3, VertexBuffer } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import { getSharedFramePath } from '@/lib/constants/assetPaths'
 import type { TentSpecs } from '@/types'
-import { FRAME_PATH } from '../specs'
+
+const SHARED_FRAME_PATH = getSharedFramePath()
 
 interface UprightsProps {
 	numBays: number
@@ -130,7 +132,7 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 
 		onLoadStateChange?.(true)
 
-		loadGLB(scene, FRAME_PATH, 'mainProfile.glb', controller.signal)
+		loadGLB(scene, SHARED_FRAME_PATH, 'mainProfile.glb', controller.signal)
 			.then((loaded) => {
 				if (controller.signal.aborted) {
 					for (const m of loaded) m.dispose()

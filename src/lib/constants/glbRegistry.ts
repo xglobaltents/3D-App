@@ -130,7 +130,8 @@ export const UPRIGHT_CONNECTOR_REG: GLBPartRegistry = {
 
 /**
  * Connector Triangle — shared GLB.
- * No profile association, uniform scale 0.001 (mm→m).
+ * Uses the GLTF root's non-uniform authored scale on load (x/y ~= 0.0003055,
+ * z = 0.001), plus a validated frame placement contract.
  */
 export const CONNECTOR_TRIANGLE_REG: GLBPartRegistry = {
   name: 'Connector Triangle',

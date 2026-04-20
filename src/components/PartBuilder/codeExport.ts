@@ -2,7 +2,7 @@ import { Vector3 } from '@babylonjs/core'
 import type { TransformValues, MirrorFlags, AxisScale } from './types'
 import type { GLBOption } from './catalogue'
 import { MIRROR_CONFIGS } from './catalogue'
-import { roundTo4, radToDeg } from './utils'
+import { canonicalizeEulerDisplay, roundTo4, radToDeg } from './utils'
 
 /* ═══════════════════════════════════════════════════════════════════════════
    Rich Code Export — generates fully documented, parametric placement code
@@ -350,7 +350,7 @@ export function generateRichCode(ctx: CodeExportContext): string {
     for (const cfg of MIRROR_CONFIGS) {
       if (!mirrors[cfg.axis]) continue
       const mp = cfg.posFn(pos)
-      const mr = cfg.rotFn(rot)
+      const mr = canonicalizeEulerDisplay(cfg.rotFn(rot))
       const tag = cfg.axis.toUpperCase()
 
       c += `\n// Mirror ${tag} — ${cfg.desc}\n`
@@ -404,7 +404,7 @@ export function generateRichJSON(ctx: CodeExportContext): string {
   for (const cfg of MIRROR_CONFIGS) {
     if (!mirrors[cfg.axis]) continue
     const mp = cfg.posFn(pos)
-    const mr = cfg.rotFn(rot)
+    const mr = canonicalizeEulerDisplay(cfg.rotFn(rot))
     placements[`mirror_${cfg.axis}`] = {
       desc: cfg.desc,
       position: { x: roundTo4(mp.x), y: roundTo4(mp.y), z: roundTo4(mp.z) },

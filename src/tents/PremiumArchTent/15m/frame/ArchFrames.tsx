@@ -1,12 +1,14 @@
 import { type FC, memo, useEffect, useRef } from 'react'
 import { TransformNode, Vector2, Vector3, Mesh, VertexBuffer, VertexData, type Scene } from '@babylonjs/core'
 import { useScene } from '@/engine/BabylonProvider'
-import { loadGLB, getGLBWorldMatrices, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { loadGLB, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { makeFrameCenterlineHeightFn } from '@/lib/utils/archMath'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import { getSharedFramePath } from '@/lib/constants/assetPaths'
 import type { TentSpecs } from '@/types'
-import { FRAME_PATH } from '../specs'
 import earcut from 'earcut'
+
+const SHARED_FRAME_PATH = getSharedFramePath()
 
 interface ArchFramesProps {
 	numBays: number
@@ -39,6 +41,14 @@ const PROFILE_WALL_RATIO = 0.12
 const SWEEP_TARGET_SEGMENT_LENGTH = 0.18
 const SWEEP_MIN_SEGMENTS = 72
 const SWEEP_MAX_SEGMENTS = 128
+const MAX_OUTER_PROFILE_POINTS = 48
+const MAX_INNER_PROFILE_POINTS = 32
+const PROFILE_SIMPLIFY_START_RATIO = 0.0015
+
+// Dev-mode StrictMode remounts and bay/variant changes can re-enter the arch
+// bootstrap path repeatedly. Cache the extracted profile shape so we only pay
+// the GLB profile extraction cost once per profile size in a browser session.
+const ARCH_PROFILE_SHAPE_CACHE = new Map<string, ProfileShape>()
 
 function getArchEaveOuterOffsetX(specs: TentSpecs, profileWidth: number): number {
 	const slope = Math.max(specs.rafterSlopeAtEave ?? 0, 0)
@@ -237,6 +247,96 @@ function scaleProfileShape(shape: ProfileShape, targetWidth: number, targetHeigh
 	}
 }
 
+function getPointToSegmentDistance(point: Vector2, start: Vector2, end: Vector2): number {
+	const dx = end.x - start.x
+	const dy = end.y - start.y
+	if (dx === 0 && dy === 0) return Vector2.Distance(point, start)
+
+	const t = Math.max(0, Math.min(1, (
+		((point.x - start.x) * dx + (point.y - start.y) * dy) /
+		(dx * dx + dy * dy)
+	)))
+	const projection = new Vector2(start.x + dx * t, start.y + dy * t)
+	return Vector2.Distance(point, projection)
+}
+
+function simplifyPolyline(points: Vector2[], epsilon: number): Vector2[] {
+	if (points.length <= 2) return [...points]
+
+	let maxDistance = 0
+	let splitIndex = -1
+	for (let i = 1; i < points.length - 1; i++) {
+		const distance = getPointToSegmentDistance(points[i], points[0], points[points.length - 1])
+		if (distance > maxDistance) {
+			maxDistance = distance
+			splitIndex = i
+		}
+	}
+
+	if (maxDistance <= epsilon || splitIndex === -1) {
+		return [points[0], points[points.length - 1]]
+	}
+
+	const left = simplifyPolyline(points.slice(0, splitIndex + 1), epsilon)
+	const right = simplifyPolyline(points.slice(splitIndex), epsilon)
+	return [...left.slice(0, -1), ...right]
+}
+
+function simplifyClosedLoop(points: Vector2[], maxPoints: number, clockwise: boolean): Vector2[] {
+	if (points.length <= maxPoints) return normalizeLoop(points, clockwise)
+
+	let minX = Infinity
+	let maxX = -Infinity
+	let minY = Infinity
+	let maxY = -Infinity
+	for (const point of points) {
+		minX = Math.min(minX, point.x)
+		maxX = Math.max(maxX, point.x)
+		minY = Math.min(minY, point.y)
+		maxY = Math.max(maxY, point.y)
+	}
+
+	let anchorIndex = 0
+	let maxRadiusSq = -Infinity
+	const centerX = (minX + maxX) / 2
+	const centerY = (minY + maxY) / 2
+	for (let i = 0; i < points.length; i++) {
+		const dx = points[i].x - centerX
+		const dy = points[i].y - centerY
+		const radiusSq = dx * dx + dy * dy
+		if (radiusSq > maxRadiusSq) {
+			maxRadiusSq = radiusSq
+			anchorIndex = i
+		}
+	}
+
+	const ordered = [
+		...points.slice(anchorIndex),
+		...points.slice(0, anchorIndex),
+		points[anchorIndex],
+	]
+
+	const maxDimension = Math.max(maxX - minX, maxY - minY)
+	let epsilon = Math.max(maxDimension * PROFILE_SIMPLIFY_START_RATIO, 1e-6)
+	let simplified = ordered.slice(0, -1)
+
+	for (let attempt = 0; attempt < 12; attempt++) {
+		const simplifiedPolyline = simplifyPolyline(ordered, epsilon)
+		simplified = simplifiedPolyline.slice(0, -1)
+		if (simplified.length <= maxPoints) break
+		epsilon *= 1.6
+	}
+
+	return normalizeLoop(simplified, clockwise)
+}
+
+function simplifyProfileShape(shape: ProfileShape): ProfileShape {
+	return {
+		outer: simplifyClosedLoop(shape.outer, MAX_OUTER_PROFILE_POINTS, true),
+		holes: shape.holes.map((loop) => simplifyClosedLoop(loop, MAX_INNER_PROFILE_POINTS, false)),
+	}
+}
+
 function buildLoopsFromEdges(
 	allPositions: number[],
 	boundaryEdges: Array<[number, number]>,
@@ -350,6 +450,50 @@ function extractCapLoops(
 	return buildLoopsFromEdges(allPositions, cappedEdges, axis)
 }
 
+function buildSequentialIndices(vertexCount: number): number[] {
+	const indices = new Array<number>(vertexCount)
+	for (let i = 0; i < vertexCount; i++) {
+		indices[i] = i
+	}
+	return indices
+}
+
+function weldVertices(
+	positions: number[],
+	indices: number[],
+	tolerance = 1e-5,
+): { positions: number[]; indices: number[] } {
+	const weldedPositions: number[] = []
+	const weldedIndices = new Array<number>(indices.length)
+	const vertexMap = new Map<string, number>()
+	const scale = 1 / tolerance
+
+	for (let vertex = 0; vertex < positions.length / 3; vertex++) {
+		const x = positions[vertex * 3]
+		const y = positions[vertex * 3 + 1]
+		const z = positions[vertex * 3 + 2]
+		const key = `${Math.round(x * scale)}:${Math.round(y * scale)}:${Math.round(z * scale)}`
+
+		let weldedVertex = vertexMap.get(key)
+		if (weldedVertex === undefined) {
+			weldedVertex = weldedPositions.length / 3
+			weldedPositions.push(x, y, z)
+			vertexMap.set(key, weldedVertex)
+		}
+
+		for (let i = 0; i < indices.length; i++) {
+			if (indices[i] === vertex) {
+				weldedIndices[i] = weldedVertex
+			}
+		}
+	}
+
+	return {
+		positions: weldedPositions,
+		indices: weldedIndices,
+	}
+}
+
 function extractProfileShape(meshes: Mesh[]): ProfileShape | null {
 	const allPositions: number[] = []
 	const allIndices: number[] = []
@@ -357,8 +501,11 @@ function extractProfileShape(meshes: Mesh[]): ProfileShape | null {
 
 	for (const mesh of meshes) {
 		const positions = mesh.getVerticesData(VertexBuffer.PositionKind)
-		const indices = mesh.getIndices()
-		if (!positions || !indices) continue
+		if (!positions) continue
+		const meshIndices = mesh.getIndices()
+		const indices = meshIndices && meshIndices.length > 0
+			? meshIndices
+			: buildSequentialIndices(positions.length / 3)
 		for (let i = 0; i < positions.length; i++) {
 			allPositions.push(positions[i])
 		}
@@ -370,11 +517,15 @@ function extractProfileShape(meshes: Mesh[]): ProfileShape | null {
 
 	if (allPositions.length < 9 || allIndices.length < 3) return null
 
+	const welded = weldVertices(allPositions, allIndices)
+	const weldedPositions = welded.positions
+	const weldedIndices = welded.indices
+
 	const allEdgeCounts = new Map<string, number>()
-	for (let i = 0; i < allIndices.length; i += 3) {
-		const a = allIndices[i]
-		const b = allIndices[i + 1]
-		const c = allIndices[i + 2]
+	for (let i = 0; i < weldedIndices.length; i += 3) {
+		const a = weldedIndices[i]
+		const b = weldedIndices[i + 1]
+		const c = weldedIndices[i + 2]
 
 		for (const [u, v] of [[a, b], [b, c], [c, a]] as const) {
 			const key = edgeKey(u, v)
@@ -382,28 +533,20 @@ function extractProfileShape(meshes: Mesh[]): ProfileShape | null {
 		}
 	}
 
-	const axes = ([0, 1, 2] as const)
-		.map((axis) => {
-			let min = Infinity
-			let max = -Infinity
-			for (let vertex = 0; vertex < allPositions.length / 3; vertex++) {
-				const value = getVertexAxisValue(allPositions, vertex, axis)
-				min = Math.min(min, value)
-				max = Math.max(max, value)
-			}
-			return { axis, min, max, extent: max - min }
-		})
-		.sort((a, b) => b.extent - a.extent)
-
-	let loops: Vector2[][] = []
-	for (const axisInfo of axes) {
-		if (axisInfo.extent <= 0) continue
-		const tolerance = axisInfo.extent * 0.005
-		const minLoops = extractCapLoops(allPositions, allIndices, axisInfo.min, tolerance, allEdgeCounts, axisInfo.axis)
-		const maxLoops = extractCapLoops(allPositions, allIndices, axisInfo.max, tolerance, allEdgeCounts, axisInfo.axis)
-		loops = minLoops.length > 0 ? minLoops : maxLoops
-		if (loops.length > 0) break
+	let min = Infinity
+	let max = -Infinity
+	for (let vertex = 0; vertex < weldedPositions.length / 3; vertex++) {
+		const value = getVertexAxisValue(weldedPositions, vertex, 2)
+		min = Math.min(min, value)
+		max = Math.max(max, value)
 	}
+	const extent = max - min
+	if (extent <= 0) return null
+
+	const tolerance = extent * 0.005
+	const minLoops = extractCapLoops(weldedPositions, weldedIndices, min, tolerance, allEdgeCounts, 2)
+	const maxLoops = extractCapLoops(weldedPositions, weldedIndices, max, tolerance, allEdgeCounts, 2)
+	const loops = minLoops.length > 0 ? minLoops : maxLoops
 	if (loops.length === 0) return null
 
 	let outerIndex = 0
@@ -596,6 +739,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 		const archMat = clonedMat ?? baseMat
 		const profile = specs.profiles.rafter
 		const fallbackShape = buildLowPolyProfileShape(profile.width, profile.height)
+		const profileCacheKey = `${SHARED_FRAME_PATH}mainProfile.glb:${profile.width}:${profile.height}`
 
 		const buildArchInstances = (profileShape: ProfileShape) => {
 			const archPathFrames = buildArchPathFrames(specs)
@@ -623,7 +767,22 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 			allDisposables.push(archMesh)
 		}
 
-		loadGLB(scene, FRAME_PATH, 'mainProfile.glb', controller.signal)
+		const cachedProfileShape = ARCH_PROFILE_SHAPE_CACHE.get(profileCacheKey)
+		if (cachedProfileShape) {
+			buildArchInstances(cachedProfileShape)
+			onLoadStateChange?.(false)
+			return () => {
+				controller.abort()
+				for (const d of allDisposables) {
+					try { d.dispose() } catch { /* already gone */ }
+				}
+				if (clonedMat && clonedMat !== baseMat) {
+					try { clonedMat.dispose() } catch { /* already gone */ }
+				}
+			}
+		}
+
+		loadGLB(scene, SHARED_FRAME_PATH, 'mainProfile.glb', controller.signal)
 			.then((loaded) => {
 				if (controller.signal.aborted) {
 					for (const mesh of loaded) mesh.dispose()
@@ -646,12 +805,8 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 					return
 				}
 
-				const glbWorldMatrices = getGLBWorldMatrices(FRAME_PATH, 'mainProfile.glb')
 				for (const mesh of meshes) {
 					mesh.makeGeometryUnique()
-					const worldMatrix = glbWorldMatrices?.get(mesh.name)?.clone()
-						?? mesh.getWorldMatrix().clone()
-					mesh.bakeTransformIntoVertices(worldMatrix)
 				}
 
 				const extractedShape = extractProfileShape(meshes)
@@ -659,11 +814,15 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 					try { mesh.dispose() } catch { /* already gone */ }
 				}
 
-				buildArchInstances(
-					extractedShape
-						? scaleProfileShape(extractedShape, profile.width, profile.height)
-						: fallbackShape,
-				)
+				const resolvedProfileShape = extractedShape
+					? simplifyProfileShape(scaleProfileShape(extractedShape, profile.width, profile.height))
+					: fallbackShape
+
+				if (extractedShape) {
+					ARCH_PROFILE_SHAPE_CACHE.set(profileCacheKey, resolvedProfileShape)
+				}
+
+				buildArchInstances(resolvedProfileShape)
 				if (!extractedShape) {
 					console.warn('[ArchFrames] Falling back to procedural hollow profile')
 				}

@@ -1,6 +1,7 @@
-import { Color3, Vector3 } from '@babylonjs/core'
+import { Color3, Matrix, Quaternion, Vector3 } from '@babylonjs/core'
 import type { TentSpecs } from '@/types'
 import { getFramePath, getSharedFramePath } from '@/lib/constants/assetPaths'
+import { getConnectorTriangleBaseTransform } from '@/lib/constants/connectorTrianglePlacement'
 import type { TentType, TentVariant } from '@/lib/constants/assetPaths'
 import type { MirrorConfig } from './types'
 import {
@@ -147,14 +148,12 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
       folder: SHARED,
       file: 'connector-triangle.glb',
       defaultScale: 0.001,
+      initialAxisScale: { x: 0.0003055, y: 0.0003055, z: 0.001 },
       registry: CONNECTOR_TRIANGLE_REG,
       axisLabels: { x: 'uniform', y: 'uniform', z: 'uniform' },
       modelRotation: { x: 0, y: Math.PI, z: 0 },
-      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => ({
-        x: -(s.halfWidth - s.profiles.upright.width / 2),
-        y: baseplateTop + s.eaveHeight - 0.190,
-        z: firstLineZ,
-      }),
+      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) =>
+        getConnectorTriangleBaseTransform(s, baseplateTop, firstLineZ),
     },
     {
       id: 'eave-side-beam',
@@ -272,6 +271,52 @@ export { getGLBParts as buildCatalogue }
 
 /* ─── Mirror Configurations ───────────────────────────────────────────────── */
 
+const MIRROR_X_MATRIX = Matrix.FromValues(
+  -1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, 1, 0,
+  0, 0, 0, 1,
+)
+
+const MIRROR_Z_MATRIX = Matrix.FromValues(
+  1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, -1, 0,
+  0, 0, 0, 1,
+)
+
+const MIRROR_XZ_MATRIX = Matrix.FromValues(
+  -1, 0, 0, 0,
+  0, 1, 0, 0,
+  0, 0, -1, 0,
+  0, 0, 0, 1,
+)
+
+function wrapRadians(angle: number): number {
+  const wrapped = ((angle + Math.PI) % (Math.PI * 2) + Math.PI * 2) % (Math.PI * 2) - Math.PI
+  if (Math.abs(wrapped) < 1e-6) return 0
+  if (Math.abs(Math.abs(wrapped) - Math.PI) < 1e-6) return wrapped < 0 ? -Math.PI : Math.PI
+  return wrapped
+}
+
+function normalizeEuler(euler: Vector3): Vector3 {
+  return new Vector3(
+    wrapRadians(euler.x),
+    wrapRadians(euler.y),
+    wrapRadians(euler.z),
+  )
+}
+
+function mirrorRotation(rotation: Vector3, reflectionMatrix: Matrix): Vector3 {
+  const rotationMatrix = Matrix.Identity()
+  Quaternion.FromEulerAngles(rotation.x, rotation.y, rotation.z).toRotationMatrix(rotationMatrix)
+
+  const mirroredMatrix = reflectionMatrix.multiply(rotationMatrix).multiply(reflectionMatrix)
+  const mirroredEuler = Quaternion.FromRotationMatrix(mirroredMatrix).toEulerAngles()
+
+  return normalizeEuler(mirroredEuler)
+}
+
 export const MIRROR_CONFIGS: MirrorConfig[] = [
   {
     axis: 'x',
@@ -279,7 +324,7 @@ export const MIRROR_CONFIGS: MirrorConfig[] = [
     color: new Color3(0.2, 0.7, 0.9),
     desc: 'Left / Right',
     posFn: (p) => new Vector3(-p.x, p.y, p.z),
-    rotFn: (r) => new Vector3(r.x, -r.y + Math.PI, -r.z),
+    rotFn: (r) => mirrorRotation(r, MIRROR_X_MATRIX),
   },
   {
     axis: 'z',
@@ -287,7 +332,7 @@ export const MIRROR_CONFIGS: MirrorConfig[] = [
     color: new Color3(0.3, 0.85, 0.4),
     desc: 'Front / Back',
     posFn: (p) => new Vector3(p.x, p.y, -p.z),
-    rotFn: (r) => new Vector3(-r.x + Math.PI, r.y, -r.z),
+    rotFn: (r) => mirrorRotation(r, MIRROR_Z_MATRIX),
   },
   {
     axis: 'xz',
@@ -295,6 +340,6 @@ export const MIRROR_CONFIGS: MirrorConfig[] = [
     color: new Color3(0.7, 0.3, 0.85),
     desc: 'Diagonal corner',
     posFn: (p) => new Vector3(-p.x, p.y, -p.z),
-    rotFn: (r) => new Vector3(-r.x + Math.PI, -r.y, r.z),
+    rotFn: (r) => mirrorRotation(r, MIRROR_XZ_MATRIX),
   },
 ]

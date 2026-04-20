@@ -2,7 +2,7 @@ import type { FC } from 'react'
 import { Vector3 } from '@babylonjs/core'
 import type { TransformValues, MirrorFlags, MirrorAxis } from '../types'
 import { MIRROR_CONFIGS } from '../catalogue'
-import { roundTo4, radToDeg } from '../utils'
+import { canonicalizeEulerDisplay, roundTo4, radToDeg } from '../utils'
 import { countMirrors, getMirrorPreset, toggleMirrorAxis } from '../hooks/useMirrorSystem'
 import styles from '../PartBuilder.module.css'
 
@@ -89,7 +89,7 @@ export const MirrorPanel: FC<MirrorPanelProps> = ({
             const pos = new Vector3(transform.px, transform.py, transform.pz)
             const rot = new Vector3(transform.rx, transform.ry, transform.rz)
             const mp = cfg.posFn(pos)
-            const mr = cfg.rotFn(rot)
+            const mr = canonicalizeEulerDisplay(cfg.rotFn(rot))
             const rgb = `rgb(${cfg.color.r * 255},${cfg.color.g * 255},${cfg.color.b * 255})`
             return (
               <div key={cfg.axis} className={styles.mirrorPos}>
