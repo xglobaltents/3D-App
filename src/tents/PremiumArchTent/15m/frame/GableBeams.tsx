@@ -2,7 +2,7 @@ import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
-import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import { getAluminumClone } from '@/lib/materials/frameMaterials'
 import { GABLE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 import type { TentSpecs } from '@/types'
 
@@ -46,12 +46,13 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
     const root = new TransformNode('gable-beams-root', scene)
     const allDisposables: (Mesh | TransformNode)[] = [root]
 
-    // Clone material BEFORE async — per Rule 11 & 13.
+    // Cached clone with backFaceCulling disabled — per Rule 11 & 13.
     // backFaceCulling = false because the GLB's internal mesh rotations
     // combined with handedness rotation + extreme non-uniform scaling
     // flip winding order on some triangles, causing face flickering.
-    const gableBeamMat = getAluminumMaterial(scene).clone('aluminum-gable-beams')
-    gableBeamMat.backFaceCulling = false
+    const gableBeamMat = getAluminumClone(scene, 'aluminum-gable-beams', (m) => {
+      m.backFaceCulling = false
+    })
 
     onLoadStateChange?.(true)
 
@@ -146,7 +147,7 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
     return () => {
       controller.abort()
       for (const d of allDisposables) { try { d.dispose() } catch {} }
-      try { gableBeamMat.dispose() } catch { /* gone */ }
+      // Material is cached — do NOT dispose here
     }
   }, [scene, enabled, specs, numBays, onLoadStateChange])
 

@@ -2,7 +2,7 @@ import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { Mesh, TransformNode, Vector3, Quaternion, Matrix } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial, getGLBRootTransform } from '@/lib/utils/GLBLoader'
-import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import { getAluminumClone } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 
 interface UprightConnectorsProps {
@@ -57,8 +57,9 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 			const root = new TransformNode('upright-connectors-root', scene)
 			const allDisposables: (Mesh | TransformNode)[] = [root]
 
-			const connectorMat = getAluminumMaterial(scene).clone('aluminum-connectors')
-			connectorMat.backFaceCulling = false
+			const connectorMat = getAluminumClone(scene, 'aluminum-connectors', (m) => {
+				m.backFaceCulling = false
+			})
 
 			onLoadStateChange?.(true)
 
@@ -196,7 +197,7 @@ export const UprightConnectors: FC<UprightConnectorsProps> = memo(
 				for (const d of allDisposables) {
 					try { d.dispose() } catch { /* gone */ }
 				}
-				try { connectorMat.dispose() } catch { /* gone */ }
+				// Material is cached — do NOT dispose here
 			}
 		}, [scene, enabled, specs, numBays, onLoadStateChange])
 

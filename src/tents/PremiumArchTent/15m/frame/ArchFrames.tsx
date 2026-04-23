@@ -3,7 +3,7 @@ import { TransformNode, Vector2, Vector3, Mesh, VertexBuffer, VertexData, type S
 import { useScene } from '@/engine/BabylonProvider'
 import { loadGLB, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { makeFrameCenterlineHeightFn } from '@/lib/utils/archMath'
-import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import { getAluminumClone } from '@/lib/materials/frameMaterials'
 import { getSharedFramePath } from '@/lib/constants/assetPaths'
 import type { TentSpecs } from '@/types'
 import earcut from 'earcut'
@@ -49,6 +49,17 @@ const PROFILE_SIMPLIFY_START_RATIO = 0.0015
 // bootstrap path repeatedly. Cache the extracted profile shape so we only pay
 // the GLB profile extraction cost once per profile size in a browser session.
 const ARCH_PROFILE_SHAPE_CACHE = new Map<string, ProfileShape>()
+
+// Cache the computed arch sweep vertex data (positions, indices, normals).
+// The sweep geometry depends only on specs (profile + arch envelope), NOT on
+// numBays (instances handle bay placement). Avoids re-running the heavy sweep
+// computation on every bay slider change.
+interface CachedVertexData {
+	positions: Float32Array
+	indices: Int32Array
+	normals: Float32Array
+}
+const ARCH_VERTEX_DATA_CACHE = new Map<string, CachedVertexData>()
 
 function getArchEaveOuterOffsetX(specs: TentSpecs, profileWidth: number): number {
 	const slope = Math.max(specs.rafterSlopeAtEave ?? 0, 0)
@@ -464,11 +475,13 @@ function weldVertices(
 	tolerance = 1e-5,
 ): { positions: number[]; indices: number[] } {
 	const weldedPositions: number[] = []
-	const weldedIndices = new Array<number>(indices.length)
 	const vertexMap = new Map<string, number>()
 	const scale = 1 / tolerance
+	const vertexCount = positions.length / 3
 
-	for (let vertex = 0; vertex < positions.length / 3; vertex++) {
+	// O(V): Build a remap table — old vertex index → welded vertex index
+	const remap = new Uint32Array(vertexCount)
+	for (let vertex = 0; vertex < vertexCount; vertex++) {
 		const x = positions[vertex * 3]
 		const y = positions[vertex * 3 + 1]
 		const z = positions[vertex * 3 + 2]
@@ -480,12 +493,13 @@ function weldVertices(
 			weldedPositions.push(x, y, z)
 			vertexMap.set(key, weldedVertex)
 		}
+		remap[vertex] = weldedVertex
+	}
 
-		for (let i = 0; i < indices.length; i++) {
-			if (indices[i] === vertex) {
-				weldedIndices[i] = weldedVertex
-			}
-		}
+	// O(I): Single pass over indices using the remap table
+	const weldedIndices = new Array<number>(indices.length)
+	for (let i = 0; i < indices.length; i++) {
+		weldedIndices[i] = remap[indices[i]]
 	}
 
 	return {
@@ -680,7 +694,22 @@ function buildContinuousArchMesh(
 	scene: Scene,
 	shape: ProfileShape,
 	pathFrames: PathFrame[],
+	vertexCacheKey?: string,
 ): Mesh {
+	const mesh = new Mesh('arch-frame-continuous', scene)
+
+	// Check vertex data cache first
+	const cached = vertexCacheKey ? ARCH_VERTEX_DATA_CACHE.get(vertexCacheKey) : undefined
+	if (cached) {
+		const vertexData = new VertexData()
+		vertexData.positions = cached.positions
+		vertexData.indices = cached.indices
+		vertexData.normals = cached.normals
+		vertexData.applyToMesh(mesh, true)
+		mesh.refreshBoundingInfo()
+		return mesh
+	}
+
 	const positions: number[] = []
 	const indices: number[] = []
 	const loops: SweepLoopInfo[] = [
@@ -698,12 +727,20 @@ function buildContinuousArchMesh(
 	const normals: number[] = []
 	VertexData.ComputeNormals(positions, indices, normals)
 
+	// Cache typed arrays for future re-use
+	if (vertexCacheKey) {
+		ARCH_VERTEX_DATA_CACHE.set(vertexCacheKey, {
+			positions: new Float32Array(positions),
+			indices: new Int32Array(indices),
+			normals: new Float32Array(normals),
+		})
+	}
+
 	const vertexData = new VertexData()
 	vertexData.positions = positions
 	vertexData.indices = indices
 	vertexData.normals = normals
 
-	const mesh = new Mesh('arch-frame-continuous', scene)
 	vertexData.applyToMesh(mesh, true)
 	mesh.refreshBoundingInfo()
 	return mesh
@@ -730,13 +767,10 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 		const root = new TransformNode('arch-frames-root', scene)
 		const allDisposables: (TransformNode | Mesh)[] = [root]
 
-		const baseMat = getAluminumMaterial(scene)
-		const clonedMat = baseMat.clone('aluminum-arch')
-		if (clonedMat) {
-			clonedMat.backFaceCulling = false
-			clonedMat.twoSidedLighting = true
-		}
-		const archMat = clonedMat ?? baseMat
+		const archMat = getAluminumClone(scene, 'aluminum-arch', (m) => {
+			m.backFaceCulling = false
+			m.twoSidedLighting = true
+		})
 		const profile = specs.profiles.rafter
 		const fallbackShape = buildLowPolyProfileShape(profile.width, profile.height)
 		const profileCacheKey = `${SHARED_FRAME_PATH}mainProfile.glb:${profile.width}:${profile.height}`
@@ -747,7 +781,9 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 			const halfLength = (numBays * specs.bayDistance) / 2
 			const transforms: InstanceTransform[] = []
 
-			const archMesh = buildContinuousArchMesh(scene, profileShape, sweepFrames)
+			// Vertex cache key: depends on profile + arch envelope, NOT numBays
+			const vertexCacheKey = `arch:${profile.width}:${profile.height}:${specs.archOuterSpan}:${specs.eaveHeight}:${specs.ridgeHeight}:${specs.rafterSlopeAtEave}`
+			const archMesh = buildContinuousArchMesh(scene, profileShape, sweepFrames, vertexCacheKey)
 			archMesh.material = archMat
 
 			for (let bay = 0; bay <= numBays; bay++) {
@@ -776,9 +812,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 				for (const d of allDisposables) {
 					try { d.dispose() } catch { /* already gone */ }
 				}
-				if (clonedMat && clonedMat !== baseMat) {
-					try { clonedMat.dispose() } catch { /* already gone */ }
-				}
+				// Material is cached — do NOT dispose here
 			}
 		}
 
@@ -841,9 +875,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 			for (const d of allDisposables) {
 				try { d.dispose() } catch { /* already gone */ }
 			}
-			if (clonedMat && clonedMat !== baseMat) {
-				try { clonedMat.dispose() } catch { /* already gone */ }
-			}
+			// Material is cached — do NOT dispose here
 		}
 	}, [scene, enabled, numBays, specs, onLoadStateChange])
 

@@ -113,18 +113,46 @@ function registerShadowCasters(
       shadowGen.addShadowCaster(m)
     }
   }
+
+  // Batch new mesh additions — during initial load, many meshes arrive in rapid
+  // succession. Collecting them and adding in one batch avoids repeated shadow
+  // map regeneration (expensive GPU work).
+  let pendingAdds: Mesh[] = []
+  let batchTimer: ReturnType<typeof setTimeout> | null = null
+  let disposed = false
+
+  const flushPending = () => {
+    batchTimer = null
+    if (disposed || pendingAdds.length === 0) return
+    for (const m of pendingAdds) {
+      if (shouldCastShadow(m, excludeMeshes)) {
+        shadowGen.addShadowCaster(m)
+      }
+    }
+    pendingAdds = []
+  }
+
   const addObs = scene.onNewMeshAddedObservable.add((m) => {
     if (m instanceof Mesh && shouldCastShadow(m, excludeMeshes)) {
-      shadowGen.addShadowCaster(m)
+      pendingAdds.push(m)
+      if (!batchTimer) {
+        batchTimer = setTimeout(flushPending, 50)
+      }
     }
   })
   const removeObs = scene.onMeshRemovedObservable.add((m) => {
     if (m instanceof Mesh) {
+      // Remove from pending if not yet flushed
+      const idx = pendingAdds.indexOf(m)
+      if (idx >= 0) pendingAdds.splice(idx, 1)
       shadowGen.removeShadowCaster(m)
     }
   })
   return {
     dispose() {
+      disposed = true
+      if (batchTimer) clearTimeout(batchTimer)
+      pendingAdds = []
       scene.onNewMeshAddedObservable.remove(addObs)
       scene.onMeshRemovedObservable.remove(removeObs)
     },

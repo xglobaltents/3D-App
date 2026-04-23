@@ -2,7 +2,7 @@ import { type FC, memo, useEffect, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { Matrix, Mesh, Quaternion, TransformNode, Vector3 } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial, getGLBRootTransform } from '@/lib/utils/GLBLoader'
-import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import { getAluminumClone } from '@/lib/materials/frameMaterials'
 import { getConnectorTriangleBaseTransform } from '@/lib/constants/connectorTrianglePlacement'
 import type { TentSpecs } from '@/types'
 
@@ -52,8 +52,9 @@ export const ConnectorTriangle: FC<ConnectorTriangleProps> = memo(
 			const root = new TransformNode('connector-triangle-root', scene)
 			const allDisposables: (Mesh | TransformNode)[] = [root]
 
-			const triangleMat = getAluminumMaterial(scene).clone('aluminum-connector-triangle')
-			triangleMat.backFaceCulling = false
+			const triangleMat = getAluminumClone(scene, 'aluminum-connector-triangle', (m) => {
+				m.backFaceCulling = false
+			})
 
 			onLoadStateChange?.(true)
 
@@ -201,7 +202,7 @@ export const ConnectorTriangle: FC<ConnectorTriangleProps> = memo(
 				for (const d of allDisposables) {
 					try { d.dispose() } catch { /* gone */ }
 				}
-				try { triangleMat.dispose() } catch { /* gone */ }
+				// Material is cached — do NOT dispose here
 			}
 		}, [scene, enabled, specs, numBays, onLoadStateChange])
 

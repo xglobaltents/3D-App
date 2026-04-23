@@ -267,6 +267,28 @@ export type { EnvironmentPreset } from '@/lib/constants/sceneConfig'
 // ─── Refresh (after environment change) ──────────────────────────────────────
 
 /**
+ * Get (or create) a named clone of the aluminum material with custom properties.
+ * Cached by name — avoids re-cloning and re-compiling the PBR shader on every
+ * effect re-run (bay change, StrictMode remount, etc.).
+ *
+ * The clone is stored in the same cache as the base materials, so it gets
+ * cleaned up by disposeFrameMaterialCache() and refreshed by
+ * refreshFrameMaterialCache().
+ */
+export function getAluminumClone(
+  scene: Scene,
+  name: string,
+  configure?: (mat: PBRMaterial) => void,
+): PBRMaterial {
+  return getCachedOrCreate(name, scene, (s) => {
+    const base = getAluminumMaterial(s)
+    const clone = base.clone(name)
+    if (configure) configure(clone)
+    return clone
+  }) as PBRMaterial
+}
+
+/**
  * Mark all cached PBR materials dirty after scene env changes (IBL load).
  * Since all metals now use the fixed cubemap, this just ensures shader
  * defines are up-to-date after intensity changes.

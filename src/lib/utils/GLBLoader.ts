@@ -53,6 +53,32 @@ export function clearGLBCache(scene?: Scene): void {
 
 // ─── GLB Loading ─────────────────────────────────────────────────────────────
 
+// Concurrency limiter: caps simultaneous SceneLoader.ImportMeshAsync calls.
+// Parsing GLBs is CPU-heavy (geometry decode, texture upload). Running 8+ in
+// parallel blocks the main thread and delays first visible frame.
+const GLB_CONCURRENCY = 3
+let activeLoads = 0
+const loadQueue: Array<() => void> = []
+
+function acquireLoadSlot(): Promise<void> {
+  if (activeLoads < GLB_CONCURRENCY) {
+    activeLoads++
+    return Promise.resolve()
+  }
+  return new Promise<void>((resolve) => {
+    loadQueue.push(() => {
+      activeLoads++
+      resolve()
+    })
+  })
+}
+
+function releaseLoadSlot(): void {
+  activeLoads--
+  const next = loadQueue.shift()
+  if (next) next()
+}
+
 /**
  * Load a GLB model from path. Results are cached by path+scene so the
  * same file is only fetched/parsed once per scene; subsequent calls
@@ -81,7 +107,27 @@ export async function loadGLB(
     glbCache.delete(key)
   }
 
-  const result = await SceneLoader.ImportMeshAsync('', folder, filename, scene)
+  // Wait for a load slot (limits concurrent GLB parsing)
+  await acquireLoadSlot()
+
+  // Re-check abort and cache after waiting in queue
+  if (signal?.aborted) {
+    releaseLoadSlot()
+    return []
+  }
+  // Another queued call may have loaded the same GLB while we waited
+  const cachedAfterWait = glbCache.get(key)
+  if (cachedAfterWait && cachedAfterWait.sceneUid === scene.uid) {
+    releaseLoadSlot()
+    return cloneTemplates(cachedAfterWait.meshes)
+  }
+
+  let result
+  try {
+    result = await SceneLoader.ImportMeshAsync('', folder, filename, scene)
+  } finally {
+    releaseLoadSlot()
+  }
 
   // Check abort after async
   if (signal?.aborted) {
