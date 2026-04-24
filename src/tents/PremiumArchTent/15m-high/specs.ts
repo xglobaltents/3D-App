@@ -1,5 +1,5 @@
 import type { TentSpecs } from '@/types'
-import { getFramePath, getConnectorsPath, getCoversPath } from '@/lib/constants/assetPaths'
+import { getFramePath, getCoversPath } from '@/lib/constants/assetPaths'
 import { makeArchHeightFn } from '@/lib/utils/archMath'
 
 export const TENT_TYPE = 'PremiumArchTent'
@@ -36,12 +36,6 @@ export const TENT_SPECS: TentSpecs = {
 		thickness: 0.012,
 		height: 0.30,
 	},
-	connectorPlate: {
-		length: 0.424,
-		height: 0.212,
-		depth: 0.112,
-		thickness: 0.008,
-	},
 	gableSupportPositions: [-2.5, 2.5],
 	mainPurlinX: [-2.5, 2.5],
 	intermediatePurlinX: [-5, -1.25, 0, 1.25, 5],
@@ -53,5 +47,4 @@ export function getTentLength(numBays: number, specs: TentSpecs = TENT_SPECS): n
 
 // Reuse same GLBs as the standard 15m variant
 export const FRAME_PATH = getFramePath(TENT_TYPE, VARIANT)
-export const CONNECTORS_PATH = getConnectorsPath(TENT_TYPE, VARIANT)
 export const COVERS_PATH = getCoversPath(TENT_TYPE, VARIANT)

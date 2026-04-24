@@ -9,7 +9,6 @@ import {
   DynamicTexture,
   EasingFunction,
   Effect,
-  FxaaPostProcess,
   HemisphericLight,
   Mesh,
   MeshBuilder,
@@ -668,10 +667,11 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     scene.activeCamera = camera
     cameraRef.current = camera
 
-    // FXAA post-process: smooths sub-pixel specular highlights on distant
-    // metal frames. Engine MSAA only handles polygon edges; FXAA covers the
-    // shimmering inside small bright pixels (aluminum uprights at distance).
-    const fxaa = new FxaaPostProcess('fxaa', 1.0, camera)
+    // NOTE: FXAA was removed — it blurs the sub-pixel specular highlights
+    // that give brushed aluminum its detail, making frame parts look flat.
+    // Engine MSAA (set on the engine in BabylonProvider) handles polygon
+    // edge anti-aliasing; high-frequency shimmer at distance is preferred
+    // over a soft, low-detail aluminum appearance.
 
     // Clamp camera target so panning can't go below ground
     const onAfterInput = camera.onAfterCheckInputsObservable.add(() => {
@@ -682,7 +682,6 @@ export const SceneSetup: FC<SceneSetupProps> = ({
 
     return () => {
       camera.onAfterCheckInputsObservable.remove(onAfterInput)
-      fxaa.dispose()
       if (canvas) camera.detachControl()
       camera.dispose()
       cameraRef.current = null

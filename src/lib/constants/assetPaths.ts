@@ -34,11 +34,6 @@ export function getFramePath(tentType: TentType, variant: TentVariant): string {
   return `${getTentPath(tentType, variant)}/frame/`
 }
 
-/** Connectors GLBs folder: /tents/PremiumArchTent/15m/frame/connectors/ */
-export function getConnectorsPath(tentType: TentType, variant: TentVariant): string {
-  return `${getTentPath(tentType, variant)}/frame/connectors/`
-}
-
 /** Covers GLBs folder: /tents/PremiumArchTent/15m/covers/ */
 export function getCoversPath(tentType: TentType, variant: TentVariant): string {
   return `${getTentPath(tentType, variant)}/covers/`

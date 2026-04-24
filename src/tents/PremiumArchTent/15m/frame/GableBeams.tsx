@@ -2,7 +2,7 @@ import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
-import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
+import { getAluminumClone } from '@/lib/materials/frameMaterials'
 import { GABLE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 import type { TentSpecs } from '@/types'
 
@@ -45,13 +45,15 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
 
     const root = new TransformNode('gable-beams-root', scene)
     const allDisposables: (Mesh | TransformNode)[] = [root]
-    // Shared singleton — matches every other frame part (EaveSideBeams,
-    // ArchFrames, Uprights, GableSupports). Default backFaceCulling=true is
-    // correct here: computePartScale returns positive axes so the transform
-    // determinant stays positive (no winding flips). Using the singleton
-    // keeps the gable beams visually identical in tone to the rest of the
-    // frame instead of rendering darker like a per-component clone would.
-    const aluminumMat = getAluminumMaterial(scene)
+
+    // Cached clone with backFaceCulling disabled — per Rule 11 & 13.
+    // The GLB's internal mesh rotations combined with handedness rotation
+    // and extreme non-uniform scaling flip winding order on some triangles,
+    // causing face flickering when culling is enabled. Disabling culling
+    // is the only reliable fix; the singleton path produces visible flicker.
+    const aluminumMat = getAluminumClone(scene, 'aluminum-gable-beams', (m) => {
+      m.backFaceCulling = false
+    })
 
     onLoadStateChange?.(true)
 
@@ -146,6 +148,7 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
     return () => {
       controller.abort()
       for (const d of allDisposables) { try { d.dispose() } catch {} }
+      // Material is cached via getAluminumClone — do NOT dispose here
     }
   }, [scene, enabled, specs, numBays, onLoadStateChange])
 

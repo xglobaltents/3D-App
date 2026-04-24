@@ -1,7 +1,6 @@
 import { Color3, Matrix, Quaternion, Vector3 } from '@babylonjs/core'
 import type { TentSpecs } from '@/types'
 import { getFramePath, getSharedFramePath } from '@/lib/constants/assetPaths'
-import { getConnectorTriangleBaseTransform } from '@/lib/constants/connectorTrianglePlacement'
 import type { TentType, TentVariant } from '@/lib/constants/assetPaths'
 import type { MirrorConfig } from './types'
 import {
@@ -11,8 +10,6 @@ import {
   getAxisLabels,
   BASEPLATE_REG,
   UPRIGHT_REG,
-  UPRIGHT_CONNECTOR_REG,
-  CONNECTOR_TRIANGLE_REG,
   EAVE_SIDE_BEAM_REG,
   GABLE_BEAM_REG,
   GABLE_SUPPORT_REG,
@@ -84,11 +81,7 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
     tentWidth: specs.width,
     halfWidth: specs.halfWidth,
   }
-  const plateCtx = specs.connectorPlate
-    ? { depth: specs.connectorPlate.depth, height: specs.connectorPlate.height, length: specs.connectorPlate.length }
-    : { depth: specs.profiles.upright.height, height: specs.profiles.upright.width, length: specs.profiles.upright.width * 2 }
 
-  const connectorScale = computePartScale(UPRIGHT_CONNECTOR_REG, scaleCtx, plateCtx)
   const eaveSideScale = getPartCalibrationScale('eave-side-beam', specs)
     ?? computePartScale(EAVE_SIDE_BEAM_REG, scaleCtx)
   // Keep gable beam on registry mapping so PartBuilder matches runtime
@@ -97,7 +90,6 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
   const gableSupportScale = getPartCalibrationScale('gable-support', specs)
     ?? computePartScale(GABLE_SUPPORT_REG, scaleCtx)
 
-  const connectorLabels = getAxisLabels(UPRIGHT_CONNECTOR_REG, scaleCtx, plateCtx)
   const eaveSideLabels = getAxisLabels(EAVE_SIDE_BEAM_REG, scaleCtx)
   const gableBeamLabels = getAxisLabels(GABLE_BEAM_REG, scaleCtx)
   const gableSupportLabels = getAxisLabels(GABLE_SUPPORT_REG, scaleCtx)
@@ -118,42 +110,6 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
         y: 0,
         z: firstLineZ,
       }),
-    },
-    {
-      id: 'upright-connector',
-      label: `Upright Connector (${specs.profiles.upright.width * 1000}x${specs.profiles.upright.height * 1000})`,
-      folder: SHARED,
-      file: 'upright-connector-r.glb',
-      defaultScale: 0.001,
-      initialAxisScale: connectorScale,
-      registry: UPRIGHT_CONNECTOR_REG,
-      axisLabels: connectorLabels,
-      modelRotation: { x: 0, y: Math.PI, z: 0 },
-      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) => {
-        const slope = s.rafterSlopeAtEave ?? 0
-        const plate = s.connectorPlate ?? { length: s.profiles.upright.width * 2, depth: s.profiles.upright.height }
-        const xInset = s.profiles.upright.width / 2
-        return {
-          x: -(s.halfWidth - xInset),
-          y: baseplateTop + s.eaveHeight + slope * xInset - 0.004,
-          z: firstLineZ,
-          rx: Math.PI,
-          rz: Math.atan(slope * plate.depth / plate.length),
-        }
-      },
-    },
-    {
-      id: 'connector-triangle',
-      label: 'Connector Triangle',
-      folder: SHARED,
-      file: 'connector-triangle.glb',
-      defaultScale: 0.001,
-      initialAxisScale: { x: 0.0003055, y: 0.0003055, z: 0.001 },
-      registry: CONNECTOR_TRIANGLE_REG,
-      axisLabels: { x: 'uniform', y: 'uniform', z: 'uniform' },
-      modelRotation: { x: 0, y: Math.PI, z: 0 },
-      getDefaultPosition: ({ specs: s, baseplateTop, firstLineZ }) =>
-        getConnectorTriangleBaseTransform(s, baseplateTop, firstLineZ),
     },
     {
       id: 'eave-side-beam',

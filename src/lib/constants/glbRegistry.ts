@@ -111,39 +111,6 @@ export const UPRIGHT_REG: GLBPartRegistry = {
 }
 
 /**
- * Upright Connector — shared GLB (upright-connector-r.glb).
- * No profile — dimensions come from connectorPlate specs.
- *   GLB X → connectorPlate.depth   (raw 315.7)
- *   GLB Y → connectorPlate.height  (raw 577.2)
- *   GLB Z → connectorPlate.length  (raw 196.0)
- */
-export const UPRIGHT_CONNECTOR_REG: GLBPartRegistry = {
-  name: 'Upright Connector',
-  profileKey: 'upright',
-  axes: {
-    x: { role: { type: 'fixed', scale: 0 }, raw: 315.7 },
-    y: { role: { type: 'fixed', scale: 0 }, raw: 577.2 },
-    z: { role: { type: 'fixed', scale: 0 }, raw: 196.0 },
-  },
-  rawOriginOffsetY: 10.89,
-}
-
-/**
- * Connector Triangle — shared GLB.
- * Uses the GLTF root's non-uniform authored scale on load (x/y ~= 0.0003055,
- * z = 0.001), plus a validated frame placement contract.
- */
-export const CONNECTOR_TRIANGLE_REG: GLBPartRegistry = {
-  name: 'Connector Triangle',
-  profileKey: null,
-  axes: {
-    x: { role: { type: 'base' }, raw: 1 },
-    y: { role: { type: 'base' }, raw: 1 },
-    z: { role: { type: 'base' }, raw: 1 },
-  },
-}
-
-/**
  * Eave Side Beam — shared GLB (assembly with end plates, 127×76 profile).
  * Nominal profile: 127×76mm eaveBeam.
  * Cross-section is a complex assembly — can't derive scale from profile alone.
@@ -212,12 +179,6 @@ export interface ScaleContext {
   halfWidth: number
 }
 
-export interface ConnectorPlateCtx {
-  depth: number
-  height: number
-  length: number
-}
-
 /** Returns true if the registry entry has any profileWidth/profileHeight axes. */
 export function hasProfileAxes(reg: GLBPartRegistry): boolean {
   return [reg.axes.x, reg.axes.y, reg.axes.z].some(
@@ -236,7 +197,6 @@ export function hasProfileAxes(reg: GLBPartRegistry): boolean {
 export function computePartScale(
   reg: GLBPartRegistry,
   ctx: ScaleContext,
-  connectorPlate?: ConnectorPlateCtx,
   swapProfileFields?: boolean,
 ): { x: number; y: number; z: number } {
   function resolveAxis(axis: AxisEntry, profileKey: keyof ProfileSpecs | null): number {
@@ -271,15 +231,6 @@ export function computePartScale(
     }
   }
 
-  // Connector has special handling: targets come from connectorPlate, not profile
-  if (reg === UPRIGHT_CONNECTOR_REG && connectorPlate) {
-    return {
-      x: connectorPlate.depth / reg.axes.x.raw,
-      y: connectorPlate.height / reg.axes.y.raw,
-      z: connectorPlate.length / reg.axes.z.raw,
-    }
-  }
-
   return {
     x: resolveAxis(reg.axes.x, reg.profileKey),
     y: resolveAxis(reg.axes.y, reg.profileKey),
@@ -294,7 +245,6 @@ export function computePartScale(
 export function getAxisLabels(
   reg: GLBPartRegistry,
   ctx: ScaleContext,
-  connectorPlate?: ConnectorPlateCtx,
   swapProfileFields?: boolean,
 ): { x: string; y: string; z: string } {
   function describeAxis(axis: AxisEntry, profileKey: keyof ProfileSpecs | null): string {
@@ -327,14 +277,6 @@ export function getAxisLabels(
         }
         return sourceLabels[r.source] ?? r.source
       }
-    }
-  }
-
-  if (reg === UPRIGHT_CONNECTOR_REG && connectorPlate) {
-    return {
-      x: `plate.depth (${(connectorPlate.depth * 1000).toFixed(0)}mm)`,
-      y: `plate.height (${(connectorPlate.height * 1000).toFixed(0)}mm)`,
-      z: `plate.length (${(connectorPlate.length * 1000).toFixed(0)}mm)`,
     }
   }
 

@@ -41,19 +41,19 @@ interface MaterialIntensityProfile {
 const INTENSITY_PROFILES: Record<EnvironmentPreset, MaterialIntensityProfile> = {
   // Default: 4 lights (hemi + sun + fill + bottom) — strongest rig
   default: {
-    aluminum:  { directIntensity: 0.9,  environmentIntensity: 0.8, specularIntensity: 0.9 },
+    aluminum:  { directIntensity: 1.0,  environmentIntensity: 1.1, specularIntensity: 1.2 },
     steel:     { directIntensity: 1.6,  environmentIntensity: 0.3, specularIntensity: 0.7 },
     darkMetal: { directIntensity: 1.4,  environmentIntensity: 0.2, specularIntensity: 0.5 },
   },
   // White studio: 2 lights (hemi + dir) — medium rig, bright background
   white: {
-    aluminum:  { directIntensity: 1.1,  environmentIntensity: 0.7, specularIntensity: 1.0 },
+    aluminum:  { directIntensity: 1.2,  environmentIntensity: 1.0, specularIntensity: 1.3 },
     steel:     { directIntensity: 1.8,  environmentIntensity: 0.35, specularIntensity: 0.8 },
     darkMetal: { directIntensity: 1.7,  environmentIntensity: 0.25, specularIntensity: 0.6 },
   },
   // Black studio: 2 lights (hemi + dir) — same rig, dark background needs boost
   black: {
-    aluminum:  { directIntensity: 1.3,  environmentIntensity: 0.65, specularIntensity: 1.1 },
+    aluminum:  { directIntensity: 1.4,  environmentIntensity: 0.95, specularIntensity: 1.4 },
     steel:     { directIntensity: 2.0,  environmentIntensity: 0.4,  specularIntensity: 0.9 },
     darkMetal: { directIntensity: 1.9,  environmentIntensity: 0.3,  specularIntensity: 0.7 },
   },
@@ -149,10 +149,11 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
     const mat = new PBRMaterial('shared-aluminum-frame', s)
     const profile = INTENSITY_PROFILES[activePreset].aluminum
 
-    mat.albedoColor = new Color3(0.62, 0.64, 0.66)
-    mat.metallic = 0.92
-    mat.roughness = 0.42
-    mat.microSurface = 0.58
+    mat.albedoColor = new Color3(0.78, 0.79, 0.81)
+    mat.metallic = 0.95
+    mat.roughness = 0.28
+    // NOTE: do not also set `microSurface` — it overrides `roughness`
+    // and was previously flattening reflections (effective roughness 0.42).
 
     // Fixed reflection cubemap — shared across all metals
     mat.reflectionTexture = getMetalReflection(s)
@@ -164,7 +165,9 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
 
     mat.useRadianceOverAlpha = true
     mat.useSpecularOverAlpha = true
-    mat.enableSpecularAntiAliasing = true
+    // Specular AA blurs micro-highlights at distance; disable so the brushed
+    // aluminum keeps its crisp reflective character on the frame tubing.
+    mat.enableSpecularAntiAliasing = false
     mat.backFaceCulling = true
 
     return mat
