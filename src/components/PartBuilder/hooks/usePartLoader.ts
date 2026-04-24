@@ -115,7 +115,14 @@ export function usePartLoader(
         depth: size.z + 0.005,
       }, scene)
 
-      // Reuse a single material to prevent leak on every transform update
+      // Reuse a single material to prevent leak on every transform update.
+      // Defensive guard: if the cached material was created on a previous
+      // scene (component persisted across a scene recreation), dispose it
+      // and create a fresh one bound to the current scene.
+      if (bbMatRef.current && bbMatRef.current.getScene() !== scene) {
+        safeDispose(bbMatRef.current)
+        bbMatRef.current = null
+      }
       if (!bbMatRef.current) {
         const mat = new StandardMaterial('bounding-box-mat', scene)
         mat.wireframe = true

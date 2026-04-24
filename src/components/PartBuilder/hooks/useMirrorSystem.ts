@@ -1,4 +1,4 @@
-import { useCallback, useRef } from 'react'
+import { useCallback, useMemo, useRef } from 'react'
 import {
   Mesh,
   TransformNode,
@@ -129,13 +129,19 @@ export function useMirrorSystem(
     [rootRef, modelNodeRef, meshesRef, disposeMirrors]
   )
 
-  return {
-    mirrorInstancesRef,
-    updateMirrorPositions,
-    syncMirrorVisibility,
-    createMirrors,
-    disposeMirrors,
-  }
+  // Memoize the returned object so consumer effects that list it as a
+  // dependency don't re-run on every render. The underlying callbacks are
+  // already stable via useCallback.
+  return useMemo(
+    () => ({
+      mirrorInstancesRef,
+      updateMirrorPositions,
+      syncMirrorVisibility,
+      createMirrors,
+      disposeMirrors,
+    }),
+    [updateMirrorPositions, syncMirrorVisibility, createMirrors, disposeMirrors],
+  )
 }
 
 /** Count active mirrors. */

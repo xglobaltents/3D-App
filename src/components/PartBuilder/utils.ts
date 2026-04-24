@@ -81,11 +81,52 @@ export function safeDisposeArray(arr: Disposable[]): void {
 
 const STORAGE_KEY = 'pb-configs'
 
-import type { SavedConfig } from './types'
+import type { SavedConfig, TransformValues, AxisScale, MirrorFlags } from './types'
+
+const TRANSFORM_KEYS: (keyof TransformValues)[] = ['px', 'py', 'pz', 'rx', 'ry', 'rz', 'sx', 'sy', 'sz']
+const AXIS_KEYS: (keyof AxisScale)[] = ['x', 'y', 'z']
+const MIRROR_KEYS: (keyof MirrorFlags)[] = ['x', 'z', 'xz']
+
+function isFiniteNumber(v: unknown): v is number {
+  return typeof v === 'number' && Number.isFinite(v)
+}
+
+function isTransformValues(v: unknown): v is TransformValues {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  return TRANSFORM_KEYS.every((k) => isFiniteNumber(o[k]))
+}
+
+function isAxisScale(v: unknown): v is AxisScale {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  return AXIS_KEYS.every((k) => isFiniteNumber(o[k]))
+}
+
+function isMirrorFlags(v: unknown): v is MirrorFlags {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  return MIRROR_KEYS.every((k) => typeof o[k] === 'boolean')
+}
+
+function isSavedConfig(v: unknown): v is SavedConfig {
+  if (!v || typeof v !== 'object') return false
+  const o = v as Record<string, unknown>
+  return (
+    typeof o.name === 'string' &&
+    isFiniteNumber(o.partIndex) &&
+    isTransformValues(o.transform) &&
+    isAxisScale(o.axisScale) &&
+    isMirrorFlags(o.mirrors) &&
+    isFiniteNumber(o.timestamp)
+  )
+}
 
 export function loadConfigs(): SavedConfig[] {
   try {
-    return JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    if (!Array.isArray(raw)) return []
+    return raw.filter(isSavedConfig)
   } catch {
     return []
   }
@@ -98,7 +139,6 @@ export function saveConfigs(configs: SavedConfig[]): void {
 /* ─── Semantic Position Analyzer ──────────────────────────────────────────── */
 
 import type { TentSpecs } from '@/types'
-import type { TransformValues, MirrorFlags } from './types'
 
 /**
  * Tolerance for floating-point comparisons when matching positions

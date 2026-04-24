@@ -9,6 +9,7 @@ import {
   DynamicTexture,
   EasingFunction,
   Effect,
+  FxaaPostProcess,
   HemisphericLight,
   Mesh,
   MeshBuilder,
@@ -302,16 +303,34 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   const texSize = defaultGround.texSize
   const grout = defaultGround.groutWidthPx * 2
   const cellSize = texSize / tilesPerSide
-  const groundTex = new DynamicTexture('ground-tile-tex', texSize, scene, false)
+  // 4th arg `true` enables mipmaps so the texture filters down cleanly
+  // when tiled 150× across a 600m ground viewed at grazing angles. Without
+  // mipmaps the tile pattern aliases into dark/light moiré patches that
+  // look like soft shadows on the ground.
+  const groundTex = new DynamicTexture('ground-tile-tex', texSize, scene, true)
   const ctx = groundTex.getContext()
 
   ctx.fillStyle = defaultGround.colors.grout
   ctx.fillRect(0, 0, texSize, texSize)
 
+  // Deterministic PRNG (mulberry32) — keeps the tile-color variation
+  // identical across reloads so it never accidentally lines up with the
+  // tent and looks like a stray shadow.
+  let seed = 0x9e3779b9
+  const rand = () => {
+    seed = (seed + 0x6d2b79f5) | 0
+    let t = seed
+    t = Math.imul(t ^ (t >>> 15), t | 1)
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61)
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296
+  }
+
   const { r, g, b } = defaultGround.colors.tileBase
   for (let row = 0; row < tilesPerSide; row++) {
     for (let col = 0; col < tilesPerSide; col++) {
-      const vary = Math.floor(Math.random() * 20) - 10
+      // ±4 RGB variance — subtle texture without producing patches that
+      // read as soft shadows on the ground plane.
+      const vary = Math.floor(rand() * 8) - 4
       const tr = Math.min(255, Math.max(0, r + vary))
       const tg = Math.min(255, Math.max(0, g + vary * 0.7))
       const tb = Math.min(255, Math.max(0, b + vary * 0.5))
@@ -322,6 +341,9 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
     }
   }
   groundTex.update()
+  // Max anisotropic filtering kills the remaining grazing-angle moiré
+  // that even mipmaps don't fully resolve on a 600m tiled ground.
+  groundTex.anisotropicFilteringLevel = 16
   groundTex.wrapU = Texture.WRAP_ADDRESSMODE
   groundTex.wrapV = Texture.WRAP_ADDRESSMODE
   groundTex.anisotropicFilteringLevel = 16
@@ -646,6 +668,11 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     scene.activeCamera = camera
     cameraRef.current = camera
 
+    // FXAA post-process: smooths sub-pixel specular highlights on distant
+    // metal frames. Engine MSAA only handles polygon edges; FXAA covers the
+    // shimmering inside small bright pixels (aluminum uprights at distance).
+    const fxaa = new FxaaPostProcess('fxaa', 1.0, camera)
+
     // Clamp camera target so panning can't go below ground
     const onAfterInput = camera.onAfterCheckInputsObservable.add(() => {
       if (camera.target.y < 0) {
@@ -655,6 +682,7 @@ export const SceneSetup: FC<SceneSetupProps> = ({
 
     return () => {
       camera.onAfterCheckInputsObservable.remove(onAfterInput)
+      fxaa.dispose()
       if (canvas) camera.detachControl()
       camera.dispose()
       cameraRef.current = null

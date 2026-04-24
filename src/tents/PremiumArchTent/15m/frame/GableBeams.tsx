@@ -2,7 +2,7 @@ import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
-import { getAluminumClone } from '@/lib/materials/frameMaterials'
+import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import { GABLE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 import type { TentSpecs } from '@/types'
 
@@ -45,14 +45,13 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
 
     const root = new TransformNode('gable-beams-root', scene)
     const allDisposables: (Mesh | TransformNode)[] = [root]
-
-    // Cached clone with backFaceCulling disabled — per Rule 11 & 13.
-    // backFaceCulling = false because the GLB's internal mesh rotations
-    // combined with handedness rotation + extreme non-uniform scaling
-    // flip winding order on some triangles, causing face flickering.
-    const gableBeamMat = getAluminumClone(scene, 'aluminum-gable-beams', (m) => {
-      m.backFaceCulling = false
-    })
+    // Shared singleton — matches every other frame part (EaveSideBeams,
+    // ArchFrames, Uprights, GableSupports). Default backFaceCulling=true is
+    // correct here: computePartScale returns positive axes so the transform
+    // determinant stays positive (no winding flips). Using the singleton
+    // keeps the gable beams visually identical in tone to the rest of the
+    // frame instead of rendering darker like a per-component clone would.
+    const aluminumMat = getAluminumMaterial(scene)
 
     onLoadStateChange?.(true)
 
@@ -76,7 +75,7 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
           if (!geoMeshes.includes(m as Mesh)) { try { m.dispose() } catch {} }
         }
 
-        stripAndApplyMaterial(geoMeshes, gableBeamMat)
+        stripAndApplyMaterial(geoMeshes, aluminumMat)
 
         // Capture mesh-local transforms
         const meshLocals = new Map<Mesh, Matrix>()
@@ -147,7 +146,6 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
     return () => {
       controller.abort()
       for (const d of allDisposables) { try { d.dispose() } catch {} }
-      // Material is cached — do NOT dispose here
     }
   }, [scene, enabled, specs, numBays, onLoadStateChange])
 

@@ -1,7 +1,6 @@
 import type { FC } from 'react'
 import type { TransformValues } from '../types'
 import type { AlignSpecs } from '../hooks/usePartTransform'
-import { radToDeg } from '../utils'
 import styles from '../PartBuilder.module.css'
 
 interface MovePanelProps {
@@ -21,9 +20,6 @@ export const MovePanel: FC<MovePanelProps> = ({
   align,
   alignSpecs,
 }) => {
-  // Suppress unused warning — radToDeg imported for potential use
-  void radToDeg
-
   return (
     <div className={styles.section}>
       {/* X axis */}
