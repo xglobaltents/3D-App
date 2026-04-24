@@ -483,7 +483,11 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
 
       if ((e.ctrlKey || e.metaKey) && e.key === 'z') {
         e.preventDefault()
-        e.shiftKey ? handleRedo() : handleUndo()
+        if (e.shiftKey) {
+          handleRedo()
+        } else {
+          handleUndo()
+        }
         return
       }
 
@@ -727,7 +731,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
         console.warn('Clipboard write failed:', err)
       }
     },
-    [partTransformHook, partLoader, selectedPart, mirrors, specs, numBays, baseplateTop, lineZs, halfLength]
+    [partTransformHook, partLoader, selectedPart, mirrors, parts, specs, numBays, baseplateTop, lineZs, halfLength]
   )
 
   // ── Storage save handler ───────────────────────────────────────────────

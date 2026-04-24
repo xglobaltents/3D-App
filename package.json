@@ -11,27 +11,27 @@
     "preview": "vite preview"
   },
   "dependencies": {
-    "@babylonjs/core": "^8.51.2",
-    "@babylonjs/gui": "^8.51.2",
-    "@babylonjs/loaders": "^8.51.2",
-    "@babylonjs/materials": "^8.51.2",
+    "@babylonjs/core": "^9.4.1",
+    "@babylonjs/gui": "^9.4.1",
+    "@babylonjs/loaders": "^9.4.1",
+    "@babylonjs/materials": "^9.4.1",
     "earcut": "^3.0.2",
-    "react": "^19.2.4",
-    "react-dom": "^19.2.4"
+    "react": "^19.2.5",
+    "react-dom": "^19.2.5"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
+    "@eslint/js": "^10.0.1",
     "@types/earcut": "^3.0.0",
-    "@types/node": "^25.2.3",
+    "@types/node": "^25.6.0",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
-    "@vitejs/plugin-react": "^5.1.4",
-    "eslint": "^9.39.2",
-    "eslint-plugin-react-hooks": "^7.0.1",
-    "eslint-plugin-react-refresh": "^0.5.0",
-    "globals": "^17.3.0",
-    "typescript": "~5.9.3",
-    "typescript-eslint": "^8.55.0",
-    "vite": "^7.3.1"
+    "@vitejs/plugin-react": "^6.0.1",
+    "eslint": "^10.2.1",
+    "eslint-plugin-react-hooks": "^7.1.1",
+    "eslint-plugin-react-refresh": "^0.5.2",
+    "globals": "^17.5.0",
+    "typescript": "~6.0.3",
+    "typescript-eslint": "^8.59.0",
+    "vite": "^8.0.10"
   }
 }

@@ -71,12 +71,24 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
           (m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0
         )
         if (!geoMeshes.length) {
-          for (const m of loaded) { try { m.dispose() } catch {} }
+          for (const m of loaded) {
+            try {
+              m.dispose()
+            } catch {
+              // Ignore cleanup failures while tearing down partially loaded meshes.
+            }
+          }
           onLoadStateChange?.(false)
           return
         }
         for (const m of loaded) {
-          if (!geoMeshes.includes(m as Mesh)) { try { m.dispose() } catch {} }
+          if (!geoMeshes.includes(m as Mesh)) {
+            try {
+              m.dispose()
+            } catch {
+              // Ignore cleanup failures while disposing non-geometry nodes.
+            }
+          }
         }
 
         stripAndApplyMaterial(geoMeshes, aluminumMat)
@@ -133,34 +145,38 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
 
         for (const gz of [-halfLength, halfLength]) {
           for (const gx of specs.gableSupportPositions) {
-          const topY = Math.max(baseplateTop, baseplateTop + archBottomFn(gx))
-          const supportHeight = topY - baseplateTop
-          if (supportHeight <= 1e-4) continue
+            const topY = Math.max(baseplateTop, baseplateTop + archBottomFn(gx))
+            const supportHeight = topY - baseplateTop
+            if (supportHeight <= 1e-4) continue
 
-          let scaleZ = Z_SCALE_PER_METER * supportHeight
-          let modelMatrix = makeModelMatrix(scaleZ)
-          let partY = baseplateTop
-          let partMatrix = makePartMatrix(gx, partY, gz)
-          let bounds = measureInstanceBounds(modelMatrix, partMatrix)
+            let scaleZ = Z_SCALE_PER_METER * supportHeight
+            let modelMatrix = makeModelMatrix(scaleZ)
+            let partY = baseplateTop
+            let partMatrix = makePartMatrix(gx, partY, gz)
+            let bounds = measureInstanceBounds(modelMatrix, partMatrix)
 
-          const actualHeight = bounds.max.y - bounds.min.y
-          if (actualHeight > 1e-6) {
-            scaleZ *= supportHeight / actualHeight
-            modelMatrix = makeModelMatrix(scaleZ)
-            bounds = measureInstanceBounds(modelMatrix, partMatrix)
-          }
+            const actualHeight = bounds.max.y - bounds.min.y
+            if (actualHeight > 1e-6) {
+              scaleZ *= supportHeight / actualHeight
+              modelMatrix = makeModelMatrix(scaleZ)
+              bounds = measureInstanceBounds(modelMatrix, partMatrix)
+            }
 
-          partY += baseplateTop - bounds.min.y
-          partMatrix = makePartMatrix(gx, partY, gz)
+            partY += baseplateTop - bounds.min.y
+            partMatrix = makePartMatrix(gx, partY, gz)
 
-          instances.push({ modelMatrix, partMatrix })
+            instances.push({ modelMatrix, partMatrix })
           }
         }
 
         for (const mesh of geoMeshes) {
           mesh.parent = root
         }
-        try { measureRoot.dispose() } catch {}
+        try {
+          measureRoot.dispose()
+        } catch {
+          // Ignore cleanup failures when disposing the temporary measure root.
+        }
 
         // ── Thin instances ──
         for (const src of geoMeshes) {
@@ -192,7 +208,13 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
 
     return () => {
       controller.abort()
-      for (const d of allDisposables) { try { d.dispose() } catch {} }
+      for (const d of allDisposables) {
+        try {
+          d.dispose()
+        } catch {
+          // Ignore cleanup failures during unmount.
+        }
+      }
     }
   }, [scene, enabled, specs, numBays, onLoadStateChange])
 

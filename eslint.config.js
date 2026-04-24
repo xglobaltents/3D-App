@@ -20,4 +20,16 @@ export default defineConfig([
       globals: globals.browser,
     },
   },
+  {
+    files: ['src/components/SceneSetup.tsx'],
+    rules: {
+      'react-hooks/immutability': 'off',
+    },
+  },
+  {
+    files: ['src/engine/BabylonProvider.tsx'],
+    rules: {
+      'react-refresh/only-export-components': 'off',
+    },
+  },
 ])

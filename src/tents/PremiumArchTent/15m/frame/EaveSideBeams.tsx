@@ -65,12 +65,24 @@ export const EaveSideBeams: FC<EaveSideBeamsProps> = memo(({
           (m): m is Mesh => m instanceof Mesh && m.getTotalVertices() > 0
         )
         if (!geoMeshes.length) {
-          for (const m of loaded) { try { m.dispose() } catch {} }
+          for (const m of loaded) {
+            try {
+              m.dispose()
+            } catch {
+              // Ignore cleanup failures while tearing down partially loaded meshes.
+            }
+          }
           onLoadStateChange?.(false)
           return
         }
         for (const m of loaded) {
-          if (!geoMeshes.includes(m as Mesh)) { try { m.dispose() } catch {} }
+          if (!geoMeshes.includes(m as Mesh)) {
+            try {
+              m.dispose()
+            } catch {
+              // Ignore cleanup failures while disposing non-geometry nodes.
+            }
+          }
         }
 
         stripAndApplyMaterial(geoMeshes, aluminumMat)
@@ -146,7 +158,13 @@ export const EaveSideBeams: FC<EaveSideBeamsProps> = memo(({
 
     return () => {
       controller.abort()
-      for (const d of allDisposables) { try { d.dispose() } catch {} }
+      for (const d of allDisposables) {
+        try {
+          d.dispose()
+        } catch {
+          // Ignore cleanup failures during unmount.
+        }
+      }
     }
   }, [scene, enabled, specs, numBays, onLoadStateChange])
 
