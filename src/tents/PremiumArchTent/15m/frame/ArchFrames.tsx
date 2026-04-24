@@ -44,6 +44,7 @@ const SWEEP_MAX_SEGMENTS = 128
 const MAX_OUTER_PROFILE_POINTS = 48
 const MAX_INNER_PROFILE_POINTS = 32
 const PROFILE_SIMPLIFY_START_RATIO = 0.0015
+const ARCH_PROFILE_CACHE_VERSION = 'aligned-v2'
 
 // Dev-mode StrictMode remounts and bay/variant changes can re-enter the arch
 // bootstrap path repeatedly. Cache the extracted profile shape so we only pay
@@ -245,8 +246,54 @@ function orientProfileShape(shape: ProfileShape, targetWidth: number, targetHeig
 	}
 }
 
+function rotateLoop(points: Vector2[], angle: number): Vector2[] {
+	const cos = Math.cos(angle)
+	const sin = Math.sin(angle)
+	return points.map((point) => new Vector2(
+		point.x * cos - point.y * sin,
+		point.x * sin + point.y * cos,
+	))
+}
+
+function alignProfileShapeToAxes(shape: ProfileShape): ProfileShape {
+	if (shape.outer.length < 2) return shape
+
+	let meanX = 0
+	let meanY = 0
+	for (const point of shape.outer) {
+		meanX += point.x
+		meanY += point.y
+	}
+	meanX /= shape.outer.length
+	meanY /= shape.outer.length
+
+	let covXX = 0
+	let covXY = 0
+	let covYY = 0
+	for (const point of shape.outer) {
+		const dx = point.x - meanX
+		const dy = point.y - meanY
+		covXX += dx * dx
+		covXY += dx * dy
+		covYY += dy * dy
+	}
+
+	if (Math.abs(covXY) < 1e-8 && Math.abs(covXX - covYY) < 1e-8) {
+		return shape
+	}
+
+	const principalAxisAngle = 0.5 * Math.atan2(2 * covXY, covXX - covYY)
+	if (Math.abs(principalAxisAngle) < 1e-6) return shape
+
+	return {
+		outer: rotateLoop(shape.outer, -principalAxisAngle),
+		holes: shape.holes.map((loop) => rotateLoop(loop, -principalAxisAngle)),
+	}
+}
+
 function scaleProfileShape(shape: ProfileShape, targetWidth: number, targetHeight: number): ProfileShape {
-	const orientedShape = orientProfileShape(shape, targetWidth, targetHeight)
+	const alignedShape = alignProfileShapeToAxes(shape)
+	const orientedShape = orientProfileShape(alignedShape, targetWidth, targetHeight)
 	const { width: rawWidth, height: rawHeight } = getProfileShapeBounds(orientedShape)
 	const scaleX = targetWidth / rawWidth
 	const scaleY = targetHeight / rawHeight
@@ -631,13 +678,11 @@ function appendLoopSideGeometry(
 			const c = nextRingStart + i
 			const d = nextRingStart + next
 
-			if (loop.clockwise) {
-				indices.push(a, c, b)
-				indices.push(b, c, d)
-			} else {
-				indices.push(a, b, c)
-				indices.push(b, d, c)
-			}
+			// The loop orientation already encodes whether this ring is outer
+			// or inner. Emit the same triangle order for both so the side-wall
+			// normals point out of the solid, including the tube interior.
+			indices.push(a, c, b)
+			indices.push(b, c, d)
 		}
 	}
 }
@@ -773,7 +818,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 		})
 		const profile = specs.profiles.rafter
 		const fallbackShape = buildLowPolyProfileShape(profile.width, profile.height)
-		const profileCacheKey = `${SHARED_FRAME_PATH}mainProfile.glb:${profile.width}:${profile.height}`
+		const profileCacheKey = `${SHARED_FRAME_PATH}mainProfile.glb:${profile.width}:${profile.height}:${ARCH_PROFILE_CACHE_VERSION}`
 
 		const buildArchInstances = (profileShape: ProfileShape) => {
 			const archPathFrames = buildArchPathFrames(specs)
@@ -782,7 +827,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 			const transforms: InstanceTransform[] = []
 
 			// Vertex cache key: depends on profile + arch envelope, NOT numBays
-			const vertexCacheKey = `arch:${profile.width}:${profile.height}:${specs.archOuterSpan}:${specs.eaveHeight}:${specs.ridgeHeight}:${specs.rafterSlopeAtEave}`
+			const vertexCacheKey = `arch:${ARCH_PROFILE_CACHE_VERSION}:${profile.width}:${profile.height}:${specs.archOuterSpan}:${specs.eaveHeight}:${specs.ridgeHeight}:${specs.rafterSlopeAtEave}`
 			const archMesh = buildContinuousArchMesh(scene, profileShape, sweepFrames, vertexCacheKey)
 			archMesh.material = archMat
 

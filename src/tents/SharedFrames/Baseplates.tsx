@@ -134,6 +134,26 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 					}
 				}
 
+				// Baseplates under each gable support (front + back gable ends),
+				// directly below the gable arch centerline.
+				const gableSupportPositions = specs.gableSupportPositions ?? []
+				if (gableSupportPositions.length > 0) {
+					for (const side of [-1, 1] as const) {
+						const gableZ = side * halfLength
+						for (const gx of gableSupportPositions) {
+							transforms.push({
+								position: new Vector3(
+									gx - centerOffsetX,
+									groundY,
+									gableZ - centerOffsetZ,
+								),
+								rotation: template.rotation.clone(),
+								scaling: template.scaling.clone(),
+							})
+						}
+					}
+				}
+
 				// Apply thin instances to each mesh with geometry
 				for (const src of templateMeshes) {
 					src.parent = root

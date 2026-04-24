@@ -2,6 +2,7 @@ import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { Mesh, TransformNode, Vector3, VertexBuffer } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { makeFrameBottomHeightFn } from '@/lib/utils/archMath'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import { getSharedFramePath } from '@/lib/constants/assetPaths'
 import type { TentSpecs } from '@/types'
@@ -125,8 +126,20 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 		const root = new TransformNode('uprights-root', scene)
 		const allDisposables: (Mesh | TransformNode)[] = [root]
 		const aluminumMat = getAluminumMaterial(scene)
+		// Compute the upright height so the top meets the arch underside at
+		// x = ±halfWidth (arch slopes inward from the eave shoulder, so the
+		// arch bottom at the upright's X position is slightly above eaveHeight).
+		// The miter cut on top matches the rafter slope, so setting the
+		// upright centerline height to archBottom(halfWidth) makes the inner
+		// and outer edges meet the arch face exactly.
+		// Eave/ridge heights in specs are unchanged.
+		const archBottomAtUpright = makeFrameBottomHeightFn(
+			specs,
+			specs.profiles.rafter.width,
+			0,
+		)(specs.halfWidth)
 		const uprightHeight = Math.max(
-			specs.uprightHeight ?? specs.eaveHeight,
+			specs.uprightHeight ?? archBottomAtUpright,
 			0,
 		)
 

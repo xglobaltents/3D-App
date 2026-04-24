@@ -44,15 +44,6 @@ const DEFAULT_MAX_DPR = 2
 /** Resize debounce delay in ms */
 const RESIZE_DEBOUNCE_MS = 150
 
-function shouldForceWebGLForSafari(): boolean {
-  if (typeof navigator === 'undefined') return false
-  const ua = navigator.userAgent
-  const isWebKit = /AppleWebKit/i.test(ua)
-  const isSafari = /Safari/i.test(ua)
-  const isChromeLike = /Chrome|Chromium|CriOS|Edg|OPR/i.test(ua)
-  return isWebKit && isSafari && !isChromeLike
-}
-
 // ─── Context ─────────────────────────────────────────────────────────────────
 
 interface BabylonContextValue {
@@ -125,16 +116,11 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
 
       // ── Determine engine type (cached across StrictMode remounts) ──
       if (engineTypeDecision === null) {
-        if (shouldForceWebGLForSafari()) {
+        try {
+          const supported = await WebGPUEngine.IsSupportedAsync
+          engineTypeDecision = supported ? 'webgpu' : 'webgl'
+        } catch {
           engineTypeDecision = 'webgl'
-          console.log('[Babylon] Safari detected — forcing WebGL engine')
-        } else {
-          try {
-            const supported = await WebGPUEngine.IsSupportedAsync
-            engineTypeDecision = supported ? 'webgpu' : 'webgl'
-          } catch {
-            engineTypeDecision = 'webgl'
-          }
         }
       }
 
