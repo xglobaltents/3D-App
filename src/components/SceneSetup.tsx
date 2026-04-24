@@ -364,7 +364,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
 
   groundMat.forceIrradianceInFragment = false
   groundMesh.material = groundMat
-  groundMesh.receiveShadows = true
+  groundMesh.receiveShadows = false
   groundMesh.freezeWorldMatrix()
 
   // NOTE: No forceCompilation() here — the render loop is deferred until
@@ -454,7 +454,7 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
     height: studioGround.size,
     subdivisions: studioGround.subdivisions,
   }, scene)
-  groundMesh.receiveShadows = true
+  groundMesh.receiveShadows = false
 
   const groundMat = new PBRMaterial('groundMat', scene)
   groundMat.albedoColor = colors.groundAlbedo.clone()
