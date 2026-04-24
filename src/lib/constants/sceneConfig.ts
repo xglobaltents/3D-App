@@ -93,7 +93,9 @@ export const SCENE_CONFIG = {
       intensity: 1.5,
       position: new Vector3(30, 50, 30),
       direction: new Vector3(-30, -50, -30).normalize(),
-      specular: new Color3(1.0, 0.98, 0.95), // bright hotspots on metal
+      // Neutral white specular: warm-tinted specular (0.95 blue) clips into
+      // orange/red on saturated metal hotspots after ACES tone mapping.
+      specular: new Color3(1.0, 1.0, 1.0),
     },
     fill: {
       color: new Color3(0.9, 0.92, 1.0),    // slightly cool for contrast

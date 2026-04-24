@@ -165,9 +165,10 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
 
     mat.useRadianceOverAlpha = true
     mat.useSpecularOverAlpha = true
-    // Specular AA blurs micro-highlights at distance; disable so the brushed
-    // aluminum keeps its crisp reflective character on the frame tubing.
-    mat.enableSpecularAntiAliasing = false
+    // Geometric specular AA: widens the roughness lobe based on screen-space
+    // normal derivatives so thin tubing doesn't shimmer/blink at distance.
+    // (Same setting used by steel and cover materials.)
+    mat.enableSpecularAntiAliasing = true
     mat.backFaceCulling = true
 
     return mat
