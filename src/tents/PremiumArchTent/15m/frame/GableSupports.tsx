@@ -20,11 +20,8 @@ import type { TentSpecs } from '@/types'
 // Pattern D: gable positions × front + back
 // ═════════════════════════════════════════════════════════════
 
-// From PartBuilder calibration (gable-support-77x127.glb)
-const CROSS_SCALE_BASE_X = 0.0003428   // X at 127mm nominal (width face)
-const CROSS_SCALE_BASE_Y = 0.0003428   // Y at 76mm nominal (height face — same base, separate correction)
-const CALIBRATED_PROFILE_W = 0.127     // 127mm — the GLB's designed-for profile width
-const CALIBRATED_PROFILE_H = 0.076     // 76mm  — the GLB's designed-for profile height
+// Cross-section is now derived dynamically from the GLB's measured bounds
+// (see widthCorrection / heightCorrection below). Z extrusion stays calibrated.
 const Z_SCALE_PER_METER = 0.1641 / 3.2 // calibrated at eaveHeight = 3.2m
 
 const FOLDER = '/tents/SharedFrames/'
@@ -119,14 +116,24 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
           return measureWorldBounds(geoMeshes)
         }
 
-        // ── Model scale: PartBuilder-calibrated constants ──
-        // Cross-section uses the gable column profile (e.g. 127×76 per PDF) —
-        // gable supports must NOT be sized like the main uprights (212×112).
-        // The GLB is calibrated at 127×76, so correction is typically 1.0.
-        const widthCorrection = specs.profiles.gableColumn.width / CALIBRATED_PROFILE_W
-        const heightCorrection = specs.profiles.gableColumn.height / CALIBRATED_PROFILE_H
-        const crossScaleX = CROSS_SCALE_BASE_X * widthCorrection
-        const crossScaleY = CROSS_SCALE_BASE_Y * heightCorrection
+        // ── Model scale: dynamically derived from actual GLB bounds ──
+        // Gable column profile is capped to never exceed the main upright,
+        // so gable supports always render the same size as or smaller than
+        // the uprights they sit beneath. Bounds-based normalization makes
+        // the cross-section match the spec exactly (independent of any
+        // calibration drift in the GLB).
+        const targetW = Math.min(specs.profiles.gableColumn.width, specs.profiles.upright.width)
+        const targetH = Math.min(specs.profiles.gableColumn.height, specs.profiles.upright.height)
+
+        // Measure the GLB's natural cross-section at unit scale so we can
+        // normalize against true bounds rather than a calibration constant.
+        const probeMatrix = Matrix.Compose(Vector3.One(), MODEL_ROT_QUAT, Vector3.Zero())
+        const probePart = Matrix.Compose(Vector3.One(), PART_ROT_QUAT, Vector3.Zero())
+        const probeBounds = measureInstanceBounds(probeMatrix, probePart)
+        const naturalCrossX = Math.max(probeBounds.max.x - probeBounds.min.x, 1e-6)
+        const naturalCrossY = Math.max(probeBounds.max.z - probeBounds.min.z, 1e-6)
+        const crossScaleX = targetW / naturalCrossX
+        const crossScaleY = targetH / naturalCrossY
 
         const baseplateTop = specs.baseplate?.height ?? 0
         const halfLength = (numBays * specs.bayDistance) / 2

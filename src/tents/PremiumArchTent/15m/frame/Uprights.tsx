@@ -2,7 +2,7 @@ import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { Mesh, TransformNode, Vector3, VertexBuffer } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
-import { makeFrameBottomHeightFn } from '@/lib/utils/archMath'
+import { getFrameRafterSlopeAtEave, makeFrameBottomHeightFn } from '@/lib/utils/archMath'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import { getSharedFramePath } from '@/lib/constants/assetPaths'
 import type { TentSpecs } from '@/types'
@@ -171,7 +171,7 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 				stripAndApplyMaterial(templateMeshes, aluminumMat)
 
 				// ── Miter parameters ──
-				const rafterSlope = specs.rafterSlopeAtEave ?? 0
+				const rafterSlope = getFrameRafterSlopeAtEave(specs, specs.profiles.rafter.width)
 				const hasMiter = rafterSlope > 0
 
 				// Make geometry unique so vertex modifications don't affect

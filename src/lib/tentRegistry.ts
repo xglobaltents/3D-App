@@ -37,10 +37,18 @@ import { TENT_SPECS as PAT_10m } from '@/tents/PremiumArchTent/10m/specs'
 import { TENT_SPECS as PAT_15m } from '@/tents/PremiumArchTent/15m/specs'
 import { TENT_SPECS as PAT_15mHigh } from '@/tents/PremiumArchTent/15m-high/specs'
 import { TENT_SPECS as PAT_20m } from '@/tents/PremiumArchTent/20m/specs'
+import { TENT_SPECS as PAT_25m } from '@/tents/PremiumArchTent/25m/specs'
+import { TENT_SPECS as PAT_30m } from '@/tents/PremiumArchTent/30m/specs'
+import { TENT_SPECS as PAT_40m } from '@/tents/PremiumArchTent/40m/specs'
+import { TENT_SPECS as PAT_50m } from '@/tents/PremiumArchTent/50m/specs'
 import { PremiumArchTent10m } from '@/tents/PremiumArchTent/10m/index'
 import { PremiumArchTent15m } from '@/tents/PremiumArchTent/15m/index'
 import { PremiumArchTent15mHigh } from '@/tents/PremiumArchTent/15m-high/index'
 import { PremiumArchTent20m } from '@/tents/PremiumArchTent/20m/index'
+import { PremiumArchTent25m } from '@/tents/PremiumArchTent/25m/index'
+import { PremiumArchTent30m } from '@/tents/PremiumArchTent/30m/index'
+import { PremiumArchTent40m } from '@/tents/PremiumArchTent/40m/index'
+import { PremiumArchTent50m } from '@/tents/PremiumArchTent/50m/index'
 
 // Other tent types (stubs — available: false)
 import { TENT_SPECS as REV_15m } from '@/tents/RevolutionTent/15m/specs'
@@ -110,6 +118,46 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         specs: PAT_20m,
         available: true,
         component: PremiumArchTent20m,
+      },
+      {
+        label: 'Premium Arch Tent 25m',
+        key: 'PremiumArchTent/25m',
+        tentType: 'PremiumArchTent',
+        variant: '25m',
+        widthLabel: '25m',
+        specs: PAT_25m,
+        available: true,
+        component: PremiumArchTent25m,
+      },
+      {
+        label: 'Premium Arch Tent 30m',
+        key: 'PremiumArchTent/30m',
+        tentType: 'PremiumArchTent',
+        variant: '30m',
+        widthLabel: '30m',
+        specs: PAT_30m,
+        available: true,
+        component: PremiumArchTent30m,
+      },
+      {
+        label: 'Premium Arch Tent 40m',
+        key: 'PremiumArchTent/40m',
+        tentType: 'PremiumArchTent',
+        variant: '40m',
+        widthLabel: '40m',
+        specs: PAT_40m,
+        available: true,
+        component: PremiumArchTent40m,
+      },
+      {
+        label: 'Premium Arch Tent 50m',
+        key: 'PremiumArchTent/50m',
+        tentType: 'PremiumArchTent',
+        variant: '50m',
+        widthLabel: '50m',
+        specs: PAT_50m,
+        available: true,
+        component: PremiumArchTent50m,
       },
       // Future: 25m, 30m, etc. — add here with same pattern
     ],

@@ -2,7 +2,7 @@ import { type FC, memo, useEffect, useRef } from 'react'
 import { TransformNode, Vector2, Vector3, Mesh, VertexBuffer, VertexData, type Scene } from '@babylonjs/core'
 import { useScene } from '@/engine/BabylonProvider'
 import { loadGLB, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
-import { makeFrameCenterlineHeightFn } from '@/lib/utils/archMath'
+import { getFrameRafterSlopeAtEave, makeFrameCenterlineHeightFn } from '@/lib/utils/archMath'
 import { getAluminumClone } from '@/lib/materials/frameMaterials'
 import { getSharedFramePath } from '@/lib/constants/assetPaths'
 import type { TentSpecs } from '@/types'
@@ -44,7 +44,7 @@ const SWEEP_MAX_SEGMENTS = 128
 const MAX_OUTER_PROFILE_POINTS = 48
 const MAX_INNER_PROFILE_POINTS = 32
 const PROFILE_SIMPLIFY_START_RATIO = 0.0015
-const ARCH_PROFILE_CACHE_VERSION = 'aligned-v2'
+const ARCH_PROFILE_CACHE_VERSION = 'aligned-v11-tangent-circular-crown'
 
 // Dev-mode StrictMode remounts and bay/variant changes can re-enter the arch
 // bootstrap path repeatedly. Cache the extracted profile shape so we only pay
@@ -63,7 +63,7 @@ interface CachedVertexData {
 const ARCH_VERTEX_DATA_CACHE = new Map<string, CachedVertexData>()
 
 function getArchEaveOuterOffsetX(specs: TentSpecs, profileWidth: number): number {
-	const slope = Math.max(specs.rafterSlopeAtEave ?? 0, 0)
+	const slope = getFrameRafterSlopeAtEave(specs, profileWidth)
 	if (slope <= 0) return 0
 	const normalY = 1 / Math.sqrt(1 + slope * slope)
 	return profileWidth * 0.5 * slope * normalY
@@ -833,7 +833,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 			const transforms: InstanceTransform[] = []
 
 			// Vertex cache key: depends on profile + arch envelope, NOT numBays
-			const vertexCacheKey = `arch:${ARCH_PROFILE_CACHE_VERSION}:${profile.width}:${profile.height}:${specs.archOuterSpan}:${specs.eaveHeight}:${specs.ridgeHeight}:${specs.rafterSlopeAtEave}`
+			const vertexCacheKey = `arch:${ARCH_PROFILE_CACHE_VERSION}:${profile.width}:${profile.height}:${specs.archOuterSpan}:${specs.eaveHeight}:${specs.ridgeHeight}:${getFrameRafterSlopeAtEave(specs, profile.width)}`
 			const archMesh = buildContinuousArchMesh(scene, profileShape, sweepFrames, vertexCacheKey)
 			archMesh.material = archMat
 

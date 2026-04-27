@@ -10,6 +10,8 @@ export interface TentSpecs {
   ridgeHeight: number
   bayDistance: number
   archOuterSpan: number
+  /** Optional half-width of the smooth top crown segment before straight rafters begin. */
+  archCrownHalfSpan?: number
   /**
    * Tangent of the rafter angle at the eave (rise/run of the straight
    * rafter section).  Used to compute the miter-cut drop on the top of
