@@ -11,7 +11,7 @@ import { SnapshotController } from '@/components/SnapshotController'
 import { InspectorController } from '@/components/InspectorController'
 import { WebXRController } from '@/components/WebXRController'
 import { TENT_REGISTRY, getTentType, getWidths, getEaveVariants, getDefaultVariant, type TentVariantInfo } from '@/lib/tentRegistry'
-import { getReactiveCameraConfig } from '@/lib/constants/sceneConfig'
+import { getReactiveCameraConfig, getScenePerformanceTier } from '@/lib/constants/sceneConfig'
 import { useBottomSheetDrag } from '@/hooks/useBottomSheetDrag'
 import '@/App.css'
 
@@ -108,6 +108,7 @@ function App() {
   const hasMultipleEaveOptions = eaveVariants.length > 1
 
   const tentLength = numBays * specs.bayDistance
+  const performanceTier = getScenePerformanceTier(specs.width, tentLength)
 
   // (#1) Reactive camera config based on tent dimensions
   // React Compiler auto-memoizes this — no manual useMemo needed
@@ -249,6 +250,7 @@ function App() {
         <BabylonProvider canvasId="babylon-canvas">
             <SceneSetup
               environmentPreset={environmentPreset}
+              performanceTier={performanceTier}
               cameraTarget={cameraConfig.target}
               cameraRadius={cameraConfig.radius}
               cameraUpperRadiusLimit={cameraConfig.upperRadiusLimit}

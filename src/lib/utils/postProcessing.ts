@@ -31,18 +31,80 @@ import {
   TAARenderingPipeline,
   SSAO2RenderingPipeline,
 } from '@babylonjs/core'
-import { SCENE_CONFIG, isMobile, type EnvironmentPreset } from '@/lib/constants/sceneConfig'
+import { SCENE_CONFIG, isMobile, type EnvironmentPreset, type ScenePerformanceTier } from '@/lib/constants/sceneConfig'
 
 export interface PostProcessingHandle {
   dispose(): void
+}
+
+interface ResolvedPostProcessingConfig {
+  tone: {
+    enabled: boolean
+    type: number
+    exposure: number
+    contrast: number
+  }
+  sharpen: {
+    enabled: boolean
+    edgeAmount: number
+    colorAmount: number
+  }
+  bloom: {
+    enabled: boolean
+    threshold: number
+    weight: number
+    kernel: number
+    scale: number
+  }
+  taa: {
+    enabled: boolean
+    samples: number
+    factor: number
+  }
+  ssao: {
+    enabled: boolean
+    ssaoRatio: number
+    blurRatio: number
+    totalStrength: number
+    samples: number
+    maxZ: number
+    minZAspect: number
+    radius: number
+    expensiveBlur: boolean
+  }
+  samples: number
+}
+
+function getResolvedPostProcessingConfig(
+  preset: EnvironmentPreset,
+  performanceTier: ScenePerformanceTier,
+): ResolvedPostProcessingConfig {
+  const baseConfig = SCENE_CONFIG.postProcessing[preset]
+
+  if (performanceTier !== 'large-tent') {
+    return {
+      ...baseConfig,
+      samples: isMobile() ? 2 : 4,
+    }
+  }
+
+  return {
+    ...baseConfig,
+    sharpen: { ...baseConfig.sharpen, enabled: false },
+    bloom: { ...baseConfig.bloom, enabled: false },
+    taa: { ...baseConfig.taa, enabled: false },
+    ssao: { ...baseConfig.ssao, enabled: false },
+    samples: 1,
+  }
 }
 
 export function setupPostProcessingPipeline(
   scene: Scene,
   camera: Camera,
   preset: EnvironmentPreset,
+  performanceTier: ScenePerformanceTier = 'standard',
 ): PostProcessingHandle {
-  const cfg = SCENE_CONFIG.postProcessing[preset]
+  const cfg = getResolvedPostProcessingConfig(preset, performanceTier)
   const engine = scene.getEngine()
   const caps = engine.getCaps()
   const supportsFloatRT = !!caps.textureFloatRender || !!caps.textureHalfFloatRender
@@ -61,7 +123,7 @@ export function setupPostProcessingPipeline(
   // does not propagate). Combined with TAA this kills the sub-pixel
   // specular shimmer on thin frame tubing. FXAA is intentionally OFF —
   // it blurs over MSAA edges and softens distant tubing.
-  pipeline.samples = isMobile() ? 2 : 4
+  pipeline.samples = cfg.samples
   pipeline.fxaaEnabled = false
 
   // Tone mapping moves from scene.imageProcessingConfiguration into the pipeline

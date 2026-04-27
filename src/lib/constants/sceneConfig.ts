@@ -26,6 +26,7 @@ function hexToColor3(hex: string): Color3 {
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export type EnvironmentPreset = 'default' | 'white' | 'black'
+export type ScenePerformanceTier = 'standard' | 'large-tent'
 
 export interface SkyGradientColors {
   horizon: Color3
@@ -321,4 +322,14 @@ export function getReactiveCameraConfig(numBays: number, eaveHeight: number, bay
     radius: Math.max(base.radius, tentLength * 0.5 + 10),
     upperRadiusLimit: Math.max(base.upperRadiusLimit, tentLength * 1.5),
   }
+}
+
+export function getScenePerformanceTier(tentWidth: number, tentLength: number): ScenePerformanceTier {
+  const footprint = tentWidth * tentLength
+
+  if (tentWidth >= 40 || tentLength >= 20 || footprint >= 500) {
+    return 'large-tent'
+  }
+
+  return 'standard'
 }

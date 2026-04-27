@@ -27,6 +27,7 @@ export const TENT_SPECS: TentSpecs = {
 	eaveHeight: 4.25,
 	ridgeHeight: 11.4,
 	bayDistance: 5,
+	archCrownHalfSpan: 5,
 	archOuterSpan: 25.354,
 	rafterSlopeAtEave: 0.2977,
 	getArchHeightAtEave: makeArchHeightFn(25.354, 4.25, 11.4),

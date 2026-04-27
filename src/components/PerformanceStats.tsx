@@ -1,5 +1,5 @@
 import { type FC, useEffect, useState, useRef, useCallback } from 'react'
-import { Engine, SceneInstrumentation, WebGPUEngine } from '@babylonjs/core'
+import { Engine, EngineInstrumentation, SceneInstrumentation, WebGPUEngine } from '@babylonjs/core'
 
 interface MeshBreakdown {
   name: string
@@ -14,6 +14,8 @@ interface PerformanceStatsProps {
 interface Stats {
   fps: number
   frameTime: number
+  cpuRenderTime: number
+  gpuFrameTime: number | null
   drawCalls: number
   triangles: number
   vertices: number
@@ -28,6 +30,8 @@ interface Stats {
 const EMPTY_STATS: Stats = {
   fps: 0,
   frameTime: 0,
+  cpuRenderTime: 0,
+  gpuFrameTime: null,
   drawCalls: 0,
   triangles: 0,
   vertices: 0,
@@ -43,6 +47,7 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
   const [stats, setStats] = useState<Stats>(EMPTY_STATS)
   const [showBreakdown, setShowBreakdown] = useState(false)
   const instrumentationRef = useRef<SceneInstrumentation | null>(null)
+  const engineInstrumentationRef = useRef<EngineInstrumentation | null>(null)
   const prevMeshCountRef = useRef<number>(-1)
   const cachedBreakdownRef = useRef<MeshBreakdown[]>([])
   const cachedTrianglesRef = useRef<number>(0)
@@ -55,6 +60,10 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
       try { instrumentationRef.current.dispose() } catch { /* already gone */ }
       instrumentationRef.current = null
       instrumentedSceneUidRef.current = null
+    }
+    if (engineInstrumentationRef.current) {
+      try { engineInstrumentationRef.current.dispose() } catch { /* already gone */ }
+      engineInstrumentationRef.current = null
     }
   }, [])
 
@@ -81,6 +90,11 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
         inst.captureRenderTime = true
         inst.captureInterFrameTime = true
         instrumentationRef.current = inst
+
+        const engineInst = new EngineInstrumentation(engine)
+        engineInst.captureGPUFrameTime = true
+        engineInstrumentationRef.current = engineInst
+
         instrumentedSceneUidRef.current = scene.uid
         // Reset mesh cache so breakdown rebuilds for new scene
         prevMeshCountRef.current = -1
@@ -157,14 +171,23 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
       // Detect engine type
       const isWebGPU = engine instanceof WebGPUEngine || engine.name === 'WebGPU'
 
-      // Draw calls: SceneInstrumentation doesn't expose drawCallsCounter.
-      // Use engine._drawCalls for WebGL. For WebGPU, use the render time
-      // counter as a rough proxy (actual GPU submissions aren't exposed).
-      const drawCalls =
-        (engine as unknown as { _drawCalls?: { current: number } })._drawCalls?.current ?? 0
-
       const instrumentation = instrumentationRef.current!
-      const frameTime = instrumentation.frameTimeCounter.lastSecAverage
+      const drawCalls = Math.round(
+        instrumentation.drawCallsCounter.lastSecAverage ||
+        instrumentation.drawCallsCounter.current
+      )
+      const frameTime =
+        instrumentation.frameTimeCounter.lastSecAverage ||
+        engine.getDeltaTime()
+      const cpuRenderTime =
+        instrumentation.renderTimeCounter.lastSecAverage ||
+        instrumentation.renderTimeCounter.current
+      const gpuFrameTimeNs =
+        engineInstrumentationRef.current?.gpuFrameTimeCounter.lastSecAverage ||
+        engineInstrumentationRef.current?.gpuFrameTimeCounter.current
+      const gpuFrameTime = gpuFrameTimeNs && gpuFrameTimeNs > 0
+        ? gpuFrameTimeNs / 1_000_000
+        : null
 
       // getActiveMeshes() returns the last frustum-evaluated list.
       // Safe after the first render tick (our 500ms interval guarantees this).
@@ -174,6 +197,8 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
       setStats({
         fps: Math.round(engine.getFps()),
         frameTime: parseFloat(frameTime.toFixed(2)),
+        cpuRenderTime: parseFloat(cpuRenderTime.toFixed(2)),
+        gpuFrameTime: gpuFrameTime == null ? null : parseFloat(gpuFrameTime.toFixed(2)),
         drawCalls,
         triangles: cachedTrianglesRef.current,
         vertices: cachedVerticesRef.current,
@@ -221,6 +246,18 @@ export const PerformanceStats: FC<PerformanceStatsProps> = ({ onClose }) => {
         <div className="stat-item">
           <span className="stat-label">Frame Time</span>
           <span className="stat-value">{stats.frameTime}ms</span>
+        </div>
+
+        <div className="stat-item">
+          <span className="stat-label">CPU Render</span>
+          <span className="stat-value">{stats.cpuRenderTime}ms</span>
+        </div>
+
+        <div className="stat-item">
+          <span className="stat-label">GPU Time</span>
+          <span className="stat-value">
+            {stats.gpuFrameTime == null ? 'N/A' : `${stats.gpuFrameTime}ms`}
+          </span>
         </div>
         
         <div className="stat-item">

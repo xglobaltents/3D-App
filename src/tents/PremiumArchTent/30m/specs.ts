@@ -28,6 +28,7 @@ export const TENT_SPECS: TentSpecs = {
 	eaveHeight: 4.25,
 	ridgeHeight: 8.3,
 	bayDistance: 5,
+	archCrownHalfSpan: 5,
 	// archOuterSpan scales with width (15m: 7.606 / 7.5 ≈ 1.0141)
 	archOuterSpan: 15.212,
 	rafterSlopeAtEave: 0.2977,

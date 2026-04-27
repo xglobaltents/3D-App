@@ -9,6 +9,7 @@ interface FrameCurveSpecsLike {
 	eaveHeight: number
 	ridgeHeight: number
 	archOuterSpan: number
+	archCrownHalfSpan?: number
 	rafterSlopeAtEave?: number
 }
 
@@ -38,7 +39,11 @@ function getCircularArchSlopeAtEave(specs: FrameCurveSpecsLike): number {
 	return span / edgeHeightAboveCenter
 }
 
-function getTargetCrownHalf(span: number): number {
+function getTargetCrownHalf(specs: FrameCurveSpecsLike, span: number): number {
+	const override = specs.archCrownHalfSpan
+	if (typeof override === 'number' && override > 0) {
+		return Math.min(override, span * 0.5)
+	}
 	return Math.min(2.5, span * 0.5)
 }
 
@@ -97,7 +102,7 @@ export function getFrameRafterSlopeAtEave(
 		const ridgeHeight = specs.ridgeHeight - halfProfile
 		const span = Math.max(specs.archOuterSpan - halfProfile * eaveNormalX, 0)
 		const totalRise = ridgeHeight - eaveHeight
-		const crownHalf = getTargetCrownHalf(span)
+		const crownHalf = getTargetCrownHalf(specs, span)
 		const geometry = solveStraightPlusCircularCrownGeometry(totalRise, span, crownHalf)
 		if (!geometry) break
 		slope = geometry.slope
@@ -135,7 +140,7 @@ export function getArchCurveHalfSpan(
 	const slope = Math.max(centerlineSpecs.rafterSlopeAtEave ?? 0, 0)
 	if (rise <= 0 || span <= 0 || slope <= 0) return null
 	if (span <= SMALL_ARCH_MAX_SPAN) return span
-	if (span > SMALL_ARCH_MAX_SPAN) return getTargetCrownHalf(span)
+	if (span > SMALL_ARCH_MAX_SPAN) return getTargetCrownHalf(specs, span)
 
 	const targetShoulder = rise * 0.8
 	const minCurve = span * 0.18
@@ -180,7 +185,7 @@ export function makeFrameCenterlineHeightFn(
 	// ── Piecewise rafter: STRAIGHT + tangent circular crown ──
 	// Solve the outer straight rafters and the middle circular crown together so
 	// the 5 m crown stays a true arch and the shoulder join stays smooth.
-	const crownHalf = getTargetCrownHalf(span)
+	const crownHalf = getTargetCrownHalf(specs, span)
 	const geometry = solveStraightPlusCircularCrownGeometry(ridgeY - eaveY, span, crownHalf)
 	if (!geometry) {
 		return makeArchHeightFn(

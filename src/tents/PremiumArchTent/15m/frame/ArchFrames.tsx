@@ -44,7 +44,7 @@ const SWEEP_MAX_SEGMENTS = 128
 const MAX_OUTER_PROFILE_POINTS = 48
 const MAX_INNER_PROFILE_POINTS = 32
 const PROFILE_SIMPLIFY_START_RATIO = 0.0015
-const ARCH_PROFILE_CACHE_VERSION = 'aligned-v11-tangent-circular-crown'
+const ARCH_PROFILE_CACHE_VERSION = 'aligned-v12-wide-10m-crown'
 
 // Dev-mode StrictMode remounts and bay/variant changes can re-enter the arch
 // bootstrap path repeatedly. Cache the extracted profile shape so we only pay
@@ -833,7 +833,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 			const transforms: InstanceTransform[] = []
 
 			// Vertex cache key: depends on profile + arch envelope, NOT numBays
-			const vertexCacheKey = `arch:${ARCH_PROFILE_CACHE_VERSION}:${profile.width}:${profile.height}:${specs.archOuterSpan}:${specs.eaveHeight}:${specs.ridgeHeight}:${getFrameRafterSlopeAtEave(specs, profile.width)}`
+			const vertexCacheKey = `arch:${ARCH_PROFILE_CACHE_VERSION}:${profile.width}:${profile.height}:${specs.archOuterSpan}:${specs.archCrownHalfSpan ?? 'default'}:${specs.eaveHeight}:${specs.ridgeHeight}:${getFrameRafterSlopeAtEave(specs, profile.width)}`
 			const archMesh = buildContinuousArchMesh(scene, profileShape, sweepFrames, vertexCacheKey)
 			archMesh.material = archMat
 

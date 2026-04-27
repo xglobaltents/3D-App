@@ -28,6 +28,7 @@ import {
   SCENE_CONFIG,
   getStudioPresetColors,
   type EnvironmentPreset,
+  type ScenePerformanceTier,
 } from '@/lib/constants/sceneConfig'
 import { refreshFrameMaterialCache, setFrameMaterialEnvironmentProfile } from '@/lib/materials/frameMaterials'
 import { refreshCoverMaterialCache } from '@/lib/materials/coverMaterials'
@@ -42,6 +43,7 @@ export type CameraView = 'orbit' | 'front' | 'side' | 'top' | 'back'
 
 interface SceneSetupProps {
   environmentPreset?: EnvironmentPreset
+  performanceTier?: ScenePerformanceTier
   /** Reactive camera target — pass from parent based on tent dimensions */
   cameraTarget?: Vector3
   /** Reactive camera radius */
@@ -548,6 +550,7 @@ const CAMERA_ANIM_GROUP_NAME = 'cameraViewAnim'
  */
 export const SceneSetup: FC<SceneSetupProps> = ({
   environmentPreset = 'default',
+  performanceTier = 'standard',
   cameraTarget,
   cameraRadius,
   cameraUpperRadiusLimit,
@@ -558,6 +561,12 @@ export const SceneSetup: FC<SceneSetupProps> = ({
 }) => {
   const scene = useScene()
   const cameraRef = useRef<ArcRotateCamera | null>(null)
+  const touchPanStateRef = useRef({
+    activeTouchIds: new Set<number>(),
+    panningPointerId: null as number | null,
+    lastX: 0,
+    lastY: 0,
+  })
 
   const target = useMemo(
     () => (cameraTarget ? cameraTarget.clone() : new Vector3(0, 3, 0)),
@@ -691,11 +700,86 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     const camera = cameraRef.current
     if (!camera) return
 
-    const handle = setupPostProcessingPipeline(scene, camera, environmentPreset)
+    const handle = setupPostProcessingPipeline(scene, camera, environmentPreset, performanceTier)
     return () => {
       handle.dispose()
     }
-  }, [scene, environmentPreset])
+  }, [scene, environmentPreset, performanceTier])
+
+  // Single-touch drags should pan the camera target across the ground plane.
+  // Babylon's default one-finger touch path orbits instead, so we override it
+  // on the canvas and keep built-in multi-touch pinch/pan behavior intact.
+  useEffect(() => {
+    if (!scene || builderMode) return
+
+    const camera = cameraRef.current
+    const canvas = scene.getEngine().getRenderingCanvas()
+    if (!camera || !canvas) return
+
+    const touchPanState = touchPanStateRef.current
+    const resetSingleTouchPan = () => {
+      touchPanState.panningPointerId = null
+      touchPanState.lastX = 0
+      touchPanState.lastY = 0
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return
+
+      touchPanState.activeTouchIds.add(event.pointerId)
+      if (touchPanState.activeTouchIds.size !== 1) {
+        resetSingleTouchPan()
+        return
+      }
+
+      touchPanState.panningPointerId = event.pointerId
+      touchPanState.lastX = event.clientX
+      touchPanState.lastY = event.clientY
+      camera.inertialAlphaOffset = 0
+      camera.inertialBetaOffset = 0
+    }
+
+    const handlePointerMove = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return
+      if (touchPanState.activeTouchIds.size !== 1) return
+      if (touchPanState.panningPointerId !== event.pointerId) return
+
+      const deltaX = event.clientX - touchPanState.lastX
+      const deltaY = event.clientY - touchPanState.lastY
+      touchPanState.lastX = event.clientX
+      touchPanState.lastY = event.clientY
+
+      if (deltaX === 0 && deltaY === 0) return
+
+      camera.inertialAlphaOffset = 0
+      camera.inertialBetaOffset = 0
+      camera.inertialPanningX += -deltaX / camera.panningSensibility
+      camera.inertialPanningY += deltaY / camera.panningSensibility
+    }
+
+    const handlePointerEnd = (event: PointerEvent) => {
+      if (event.pointerType !== 'touch') return
+
+      touchPanState.activeTouchIds.delete(event.pointerId)
+      if (touchPanState.panningPointerId === event.pointerId || touchPanState.activeTouchIds.size !== 1) {
+        resetSingleTouchPan()
+      }
+    }
+
+    canvas.addEventListener('pointerdown', handlePointerDown)
+    canvas.addEventListener('pointermove', handlePointerMove)
+    canvas.addEventListener('pointerup', handlePointerEnd)
+    canvas.addEventListener('pointercancel', handlePointerEnd)
+
+    return () => {
+      touchPanState.activeTouchIds.clear()
+      resetSingleTouchPan()
+      canvas.removeEventListener('pointerdown', handlePointerDown)
+      canvas.removeEventListener('pointermove', handlePointerMove)
+      canvas.removeEventListener('pointerup', handlePointerEnd)
+      canvas.removeEventListener('pointercancel', handlePointerEnd)
+    }
+  }, [scene, builderMode])
 
   // Update camera target/radius reactively when tent dimensions change.
   // Only apply if values actually changed — don't snap back on re-renders
