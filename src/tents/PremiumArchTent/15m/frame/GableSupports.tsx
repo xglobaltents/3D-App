@@ -1,7 +1,7 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial, measureWorldBounds } from '@/lib/utils/GLBLoader'
+import { loadGLB, stripAndApplyMaterial, measureWorldBounds, freezeThinInstancedMesh } from '@/lib/utils/GLBLoader'
 import { makeFrameBottomHeightFn } from '@/lib/utils/archMath'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
@@ -120,6 +120,9 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
         }
 
         // ── Model scale: PartBuilder-calibrated constants ──
+        // Cross-section uses the gable column profile (e.g. 127×76 per PDF) —
+        // gable supports must NOT be sized like the main uprights (212×112).
+        // The GLB is calibrated at 127×76, so correction is typically 1.0.
         const widthCorrection = specs.profiles.gableColumn.width / CALIBRATED_PROFILE_W
         const heightCorrection = specs.profiles.gableColumn.height / CALIBRATED_PROFILE_H
         const crossScaleX = CROSS_SCALE_BASE_X * widthCorrection
@@ -193,10 +196,7 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
           src.scaling.setAll(1)
           src.setEnabled(true)
           src.thinInstanceSetBuffer('matrix', buf, 16)
-          src.thinInstanceRefreshBoundingInfo(false)
-          src.alwaysSelectAsActiveMesh = true
-          src.freezeWorldMatrix()
-          src.freezeNormals()
+          freezeThinInstancedMesh(src)
           allDisposables.push(src)
         }
         onLoadStateChange?.(false)

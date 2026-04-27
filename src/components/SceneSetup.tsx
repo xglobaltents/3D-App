@@ -14,11 +14,13 @@ import {
   MeshBuilder,
   PBRMaterial,
   Scene as BScene,
+  ScenePerformancePriority,
   ShadowGenerator,
   ShaderMaterial,
   Texture,
   Vector3,
   Animation,
+  AnimationGroup,
 } from '@babylonjs/core'
 // Side-effect imports: ensure engine.createDynamicTexture is available after tree-shaking
 import '@babylonjs/core/Engines/Extensions/engine.dynamicTexture'
@@ -32,6 +34,7 @@ import {
 } from '@/lib/constants/sceneConfig'
 import { refreshFrameMaterialCache, setFrameMaterialEnvironmentProfile } from '@/lib/materials/frameMaterials'
 import { refreshCoverMaterialCache } from '@/lib/materials/coverMaterials'
+import { setupPostProcessingPipeline } from '@/lib/utils/postProcessing'
 
 // ─── Re-export types ─────────────────────────────────────────────────────────
 
@@ -52,6 +55,10 @@ interface SceneSetupProps {
   cameraView?: CameraView
   /** Called when user manually orbits — parent should reset cameraView to 'orbit' */
   onCameraViewReset?: () => void
+  /** True while PartBuilder is active — relaxes perf optimisations that block per-pixel picking */
+  builderMode?: boolean
+  /** True while child GLB loaders are active — used to batch material recompiles during rebuilds */
+  isLoading?: boolean
 }
 
 // ─── Sky Gradient Shader (default preset) ────────────────────────────────────
@@ -267,7 +274,7 @@ interface Disposable { dispose(): void }
 
 function setupDefaultEnvironment(scene: BScene): Disposable {
   const {
-    sky, defaultGround, defaultLighting, defaultShadow, defaultImageProcessing,
+    sky, defaultGround, defaultLighting, defaultShadow,
     environment,
   } = SCENE_CONFIG
   const mapSize = getShadowMapSize()
@@ -396,6 +403,24 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   // ── IBL environment texture with procedural fallback ──
   const envResult = setupEnvironmentTexture(scene, environment.iblUrl, 1.0)
 
+  // ── Optional: replace gradient sky with IBL-based skybox so the visible
+  //    sky matches the reflections in metal/cover materials.
+  let iblSkybox: ReturnType<typeof scene.createDefaultSkybox> | null = null
+  if (sky.useIBLSkybox && envResult.texture) {
+    skyDome.setEnabled(false)
+    const buildSkybox = () => {
+      iblSkybox = scene.createDefaultSkybox(
+        envResult.texture!,
+        true,
+        sky.iblSkyboxSize,
+        sky.iblSkyboxBlur,
+      )
+      if (iblSkybox) iblSkybox.isPickable = false
+    }
+    if (envResult.texture.isReady()) buildSkybox()
+    else envResult.texture.onLoadObservable.addOnce(buildSkybox)
+  }
+
   scene.clearColor = new Color4(gc.horizon.r, gc.horizon.g, gc.horizon.b, 1.0)
 
   // ── Shadow generator (sun) ──
@@ -414,11 +439,8 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   scene.autoClearDepthAndStencil = true
   scene.fogMode = BScene.FOGMODE_NONE
 
-  const ip = defaultImageProcessing
-  scene.imageProcessingConfiguration.toneMappingEnabled = ip.toneMappingEnabled
-  scene.imageProcessingConfiguration.toneMappingType = ip.toneMappingType
-  scene.imageProcessingConfiguration.exposure = ip.exposure
-  scene.imageProcessingConfiguration.contrast = ip.contrast
+  // NOTE: tone mapping / exposure / contrast are owned by
+  // setupPostProcessingPipeline (DefaultRenderingPipeline.imageProcessing).
 
   return {
     dispose() {
@@ -432,6 +454,7 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
       groundMesh.dispose()
       groundMat.dispose()
       groundTex.dispose()
+      iblSkybox?.dispose()
       skyDome.dispose()
       skyMat.dispose()
     },
@@ -515,10 +538,8 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   scene.autoClear = true
   scene.autoClearDepthAndStencil = true
 
-  scene.imageProcessingConfiguration.toneMappingEnabled = true
-  scene.imageProcessingConfiguration.toneMappingType = 1 // ACES
-  scene.imageProcessingConfiguration.exposure = 1.0
-  scene.imageProcessingConfiguration.contrast = 1.0
+  // NOTE: tone mapping / exposure / contrast are owned by
+  // setupPostProcessingPipeline (DefaultRenderingPipeline.imageProcessing).
 
   return {
     dispose() {
@@ -542,14 +563,19 @@ function animateCameraToView(
   view: CameraView,
   target: Vector3,
   radius: number
-): void {
+): AnimationGroup {
   const fps = 60
   const frames = 20 // snappier than 30
   const scene = camera.getScene()
 
-  // Stop any running camera animation immediately — prevents the camera
-  // from sweeping back through the previous view when switching presets.
-  scene.stopAnimation(camera)
+  // Stop & dispose any running camera animation group immediately — prevents
+  // the camera from sweeping back through the previous view when the user
+  // rapidly switches presets, and frees the prior group's keyframe buffers.
+  const previous = scene.getAnimationGroupByName(CAMERA_ANIM_GROUP_NAME)
+  if (previous) {
+    previous.stop()
+    previous.dispose()
+  }
 
   const views: Record<CameraView, { alpha: number; beta: number; radiusMul: number }> = {
     orbit: { alpha: Math.PI / 4, beta: Math.PI / 3, radiusMul: 1.0 },
@@ -586,17 +612,21 @@ function animateCameraToView(
     return anim
   }
 
-  const animations = [
-    makeAnim('alphaAnim', 'alpha', camera.alpha, targetAlpha),
-    makeAnim('betaAnim', 'beta', camera.beta, v.beta),
-    makeAnim('radiusAnim', 'radius', camera.radius, radius * v.radiusMul),
-    makeAnim('targetXAnim', 'target.x', camera.target.x, target.x),
-    makeAnim('targetYAnim', 'target.y', camera.target.y, target.y),
-    makeAnim('targetZAnim', 'target.z', camera.target.z, target.z),
-  ]
+  const group = new AnimationGroup(CAMERA_ANIM_GROUP_NAME, scene)
+  group.addTargetedAnimation(makeAnim('alphaAnim',   'alpha',    camera.alpha,    targetAlpha),                camera)
+  group.addTargetedAnimation(makeAnim('betaAnim',    'beta',     camera.beta,     v.beta),                     camera)
+  group.addTargetedAnimation(makeAnim('radiusAnim',  'radius',   camera.radius,   radius * v.radiusMul),       camera)
+  group.addTargetedAnimation(makeAnim('targetXAnim', 'target.x', camera.target.x, target.x),                   camera)
+  group.addTargetedAnimation(makeAnim('targetYAnim', 'target.y', camera.target.y, target.y),                   camera)
+  group.addTargetedAnimation(makeAnim('targetZAnim', 'target.z', camera.target.z, target.z),                   camera)
 
-  scene.beginDirectAnimation(camera, animations, 0, frames, false)
+  group.normalize(0, frames)
+  group.onAnimationGroupEndObservable.addOnce(() => group.dispose())
+  group.play(false)
+  return group
 }
+
+const CAMERA_ANIM_GROUP_NAME = 'cameraViewAnim'
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -620,6 +650,8 @@ export const SceneSetup: FC<SceneSetupProps> = ({
   cameraUpperRadiusLimit,
   cameraView = 'orbit',
   onCameraViewReset,
+  builderMode = false,
+  isLoading = false,
 }) => {
   const scene = useScene()
   const cameraRef = useRef<ArcRotateCamera | null>(null)
@@ -667,11 +699,18 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     scene.activeCamera = camera
     cameraRef.current = camera
 
-    // NOTE: FXAA was removed — it blurs the sub-pixel specular highlights
-    // that give brushed aluminum its detail, making frame parts look flat.
-    // Engine MSAA (set on the engine in BabylonProvider) handles polygon
-    // edge anti-aliasing; high-frequency shimmer at distance is preferred
-    // over a soft, low-detail aluminum appearance.
+    // Perf defaults — overridden by the builderMode effect below when the user
+    // enters PartBuilder (which needs full picking + dirty-mechanism behaviour).
+    //  - skipPointerMovePicking avoids per-mousemove ray casts against thin instances.
+    //  - performancePriority Intermediate flips on a vetted bundle of safe
+    //    optimisations (skipped picking, frozen active meshes, etc.) for
+    //    largely-static scenes like a tent configurator.
+    scene.skipPointerMovePicking = true
+    scene.performancePriority = ScenePerformancePriority.Intermediate
+
+    // NOTE: TAA (in DefaultRenderingPipeline) handles edge AA without blurring
+    // brushed-aluminum specular highlights — replaces the prior "no AA"
+    // trade-off documented here previously.
 
     // Clamp camera target so panning can't go below ground
     const onAfterInput = camera.onAfterCheckInputsObservable.add(() => {
@@ -691,6 +730,31 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     // below. Including them here would destroy and recreate the camera on every
     // dimension change, losing the user's orbit position and causing flicker.
   }, [scene]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ── Builder mode: relax perf optimisations that interfere with picking ──
+  useEffect(() => {
+    if (!scene) return
+    if (builderMode) {
+      scene.skipPointerMovePicking = false
+      scene.performancePriority = ScenePerformancePriority.BackwardCompatible
+    } else {
+      scene.skipPointerMovePicking = true
+      scene.performancePriority = ScenePerformancePriority.Intermediate
+    }
+  }, [scene, builderMode])
+
+  // ── Bay/variant rebuild guard: batch material recompiles during reload ──
+  // While GLB loaders are mid-flight, every component touching the shared
+  // PBR materials would otherwise trigger a redundant shader recompile.
+  // Blocking the dirty mechanism collapses these into a single recompile
+  // when loading finishes.
+  useEffect(() => {
+    if (!scene) return
+    scene.blockMaterialDirtyMechanism = isLoading
+    return () => {
+      scene.blockMaterialDirtyMechanism = false
+    }
+  }, [scene, isLoading])
 
   // ── Environment setup (rebuilds on preset change) ──
   useEffect(() => {
@@ -713,6 +777,20 @@ export const SceneSetup: FC<SceneSetupProps> = ({
 
     return () => {
       env.dispose()
+    }
+  }, [scene, environmentPreset])
+
+  // ── Post-processing pipeline (rebuilds on preset change) ──
+  // DefaultRenderingPipeline owns tone mapping, sharpen, bloom; TAA + SSAO2
+  // attached on top. Tunables live in SCENE_CONFIG.postProcessing.
+  useEffect(() => {
+    if (!scene) return
+    const camera = cameraRef.current
+    if (!camera) return
+
+    const handle = setupPostProcessingPipeline(scene, camera, environmentPreset)
+    return () => {
+      handle.dispose()
     }
   }, [scene, environmentPreset])
 

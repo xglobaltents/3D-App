@@ -813,8 +813,14 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 		const allDisposables: (TransformNode | Mesh)[] = [root]
 
 		const archMat = getAluminumClone(scene, 'aluminum-arch', (m) => {
-			m.backFaceCulling = false
-			m.twoSidedLighting = true
+			// Tube is closed by end caps and inner-wall winding is opposite to
+			// the outer wall, so backface culling correctly hides the inside.
+			// Leaving culling OFF caused the inner walls to render with
+			// normals pointing into the solid metal — their specular response
+			// competed with the outer walls in the same screen pixels,
+			// producing the dancing shimmer on distant arches.
+			m.backFaceCulling = true
+			m.twoSidedLighting = false
 		})
 		const profile = specs.profiles.rafter
 		const fallbackShape = buildLowPolyProfileShape(profile.width, profile.height)

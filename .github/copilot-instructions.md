@@ -72,7 +72,7 @@ npm run lint     # ESLint
 5. **`PBRMaterial` for all materials** — frame and cover parts both use PBR for consistent quality
 6. **Share materials** — create once, reuse across instances
 7. **No emojis in UI** — keep interface text clean
-8. **Remove GLB materials** — strip default materials from loaded GLBs, apply materials via code:
+8. **Apply your own material to GLB meshes** — `loadGLB()` parses with `pluginOptions.gltf.skipMaterials = true`, so returned meshes have `material === null`. Always assign one before enabling:
    ```tsx
    const meshes = await loadGLB(scene, path, file)
    for (const mesh of meshes) {
@@ -81,6 +81,7 @@ npm run lint     # ESLint
      }
    }
    ```
+   Existing `stripAndApplyMaterial` helpers are kept for back-compat but the strip step is a no-op now.
 9. **Uniform scaling only for GLB models** — always use `template.scaling.clone()` for thin instance scaling. Never use negative axis scaling (e.g. `new Vector3(-s, s, s)`) to mirror — it flips normals causing black faces. Mirror via `rotation.y = Math.PI` instead.
 10. **Never read `__root__` from `loadGLB()` results** — `loadGLB()` returns clones from `result.meshes` only. The `__root__` TransformNode lives in `result.transformNodes` and is never included. Always create your own template TransformNode with explicit rotation/scaling.
 11. **Never mutate the material singleton** — `getAluminumMaterial(scene)` returns a shared singleton. If a component needs different properties (e.g. `backFaceCulling = false`), clone it and dispose the clone in cleanup.

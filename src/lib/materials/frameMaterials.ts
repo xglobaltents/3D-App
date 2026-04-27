@@ -41,7 +41,7 @@ interface MaterialIntensityProfile {
 const INTENSITY_PROFILES: Record<EnvironmentPreset, MaterialIntensityProfile> = {
   // Default: 4 lights (hemi + sun + fill + bottom) — strongest rig
   default: {
-    aluminum:  { directIntensity: 1.0,  environmentIntensity: 1.1, specularIntensity: 1.2 },
+    aluminum:  { directIntensity: 1.0,  environmentIntensity: 1.1, specularIntensity: 1.0 },
     steel:     { directIntensity: 1.6,  environmentIntensity: 0.3, specularIntensity: 0.7 },
     darkMetal: { directIntensity: 1.4,  environmentIntensity: 0.2, specularIntensity: 0.5 },
   },
@@ -151,7 +151,7 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
 
     mat.albedoColor = new Color3(0.78, 0.79, 0.81)
     mat.metallic = 0.95
-    mat.roughness = 0.28
+    mat.roughness = 0.38
     // NOTE: do not also set `microSurface` — it overrides `roughness`
     // and was previously flattening reflections (effective roughness 0.42).
 

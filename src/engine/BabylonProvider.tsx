@@ -54,6 +54,16 @@ interface BabylonContextValue {
 
 const BabylonContext = createContext<BabylonContextValue | null>(null)
 
+// Module-level mirror of the active context — lets non-React code (e.g. App-
+// level screenshot handlers that live outside the provider) reach the engine
+// and scene without prop-drilling. Reset on provider unmount.
+let activeBabylonContext: BabylonContextValue | null = null
+
+/** Read the active Babylon engine/scene/canvas from outside React. */
+export function getActiveBabylonContext(): BabylonContextValue | null {
+  return activeBabylonContext
+}
+
 /** Drop-in replacement for the react-babylonjs `useScene()` hook. */
 export function useScene(): Scene | null {
   const ctx = useContext(BabylonContext)
@@ -140,6 +150,21 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
           const gpuEngine = new WebGPUEngine(canvas, sharedOpts)
           await gpuEngine.initAsync()
           engine = gpuEngine
+          // NOTE: WebGPU snapshot rendering (FAST mode) was tried here but is
+          // incompatible with the DefaultRenderingPipeline's HDR ping-pong
+          // targets and TAA's history buffer (texture is read+written in the
+          // same scope, which the bundle recorder rejects). Leaving snapshot
+          // rendering OFF; the snapshot toggle in SnapshotController is a
+          // no-op until / unless we drop TAA + bloom.
+          //
+          // compatibilityMode = false unlocks native WebGPU command buffers
+          // (perf win) but requires every render-target the scene uses to be
+          // declared up-front. Our DefaultRenderingPipeline + bloom + sharpen
+          // + dynamic GLB loads create RTs lazily, so disabling compatibility
+          // mode currently breaks rendering. Toggle only if the post-FX
+          // pipeline is removed and you've followed the precautions in:
+          // https://doc.babylonjs.com/setup/support/webGPU/webGPUOptimization/webGPUNonCompatibilityMode
+          // gpuEngine.compatibilityMode = false
           console.log('[Babylon] WebGPU engine initialised')
         } catch (err) {
           engineTypeDecision = 'webgl'
@@ -220,6 +245,7 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
 
       // Expose via context
       setCtx({ engine, scene, canvas })
+      activeBabylonContext = { engine, scene, canvas }
     }
 
     init()
@@ -252,6 +278,7 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
 
       engineRef.current = null
       sceneRef.current = null
+      activeBabylonContext = null
       setCtx(null)
     }
   }, [handleResize, maxDpr])

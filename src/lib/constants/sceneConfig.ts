@@ -57,6 +57,13 @@ export const SCENE_CONFIG = {
   // ══════════════════════════════════════════════════════════════════════════
 
   sky: {
+    // When `useIBLSkybox` is true the gradient sky-dome is replaced by a
+    // skybox built from the scene's IBL cubemap (outdoor.env). This makes
+    // the visible sky match the reflections in PBR materials. Default off
+    // because the procedural gradient is brand-tuned and lighter weight.
+    useIBLSkybox: false,
+    iblSkyboxSize: 1000,
+    iblSkyboxBlur: 0.0,
     radius: 600,
     segments: 32,
     gradientColors: {
@@ -123,6 +130,43 @@ export const SCENE_CONFIG = {
     toneMappingType: 1,   // ACES
     exposure: 1.0,
     contrast: 1.08,
+  },
+
+  // ══════════════════════════════════════════════════════════════════════════
+  //  POST-PROCESSING — DefaultRenderingPipeline + TAA + SSAO2 (per preset)
+  // ══════════════════════════════════════════════════════════════════════════
+  // Tunables for src/lib/utils/postProcessing.ts. Tone mapping values mirror
+  // the per-preset image-processing settings so the active pipeline owns
+  // the final colour transform (scene.imageProcessingConfiguration is left
+  // untouched at defaults).
+
+  postProcessing: {
+    default: {
+      tone: { enabled: true, type: 1, exposure: 1.0, contrast: 1.08 },
+      sharpen: { enabled: true, edgeAmount: 0.5, colorAmount: 1.0 },
+      bloom: { enabled: true, threshold: 1.2, weight: 0.10, kernel: 64, scale: 0.5 },
+      taa:  { enabled: true, samples: 8,  factor: 0.85 },
+      // SSAO2 + TAA: gated to WebGL only in postProcessing.ts. WebGPU
+      // (HDR + rgba16float) trips a binding-resource conflict upstream.
+      ssao: { enabled: true, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 1.0,
+              samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
+    },
+    white: {
+      tone: { enabled: true, type: 1, exposure: 1.0, contrast: 1.0 },
+      sharpen: { enabled: true, edgeAmount: 0.45, colorAmount: 1.0 },
+      bloom: { enabled: false, threshold: 0.9, weight: 0.1, kernel: 64, scale: 0.5 },
+      taa:  { enabled: true, samples: 8,  factor: 0.85 },
+      ssao: { enabled: true, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 0.9,
+              samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
+    },
+    black: {
+      tone: { enabled: true, type: 1, exposure: 1.0, contrast: 1.0 },
+      sharpen: { enabled: true, edgeAmount: 0.5, colorAmount: 1.0 },
+      bloom: { enabled: true, threshold: 1.2, weight: 0.12, kernel: 64, scale: 0.5 },
+      taa:  { enabled: true, samples: 8,  factor: 0.85 },
+      ssao: { enabled: true, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 1.0,
+              samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
+    },
   },
 
   // ══════════════════════════════════════════════════════════════════════════

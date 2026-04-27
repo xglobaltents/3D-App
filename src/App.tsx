@@ -1,11 +1,15 @@
 import { useState, useCallback, useRef, useEffect, type ErrorInfo, Component, type ReactNode } from 'react'
 import '@babylonjs/loaders/glTF'
+import { Tools } from '@babylonjs/core/Misc/tools'
 
-import { BabylonProvider } from '@/engine/BabylonProvider'
+import { BabylonProvider, getActiveBabylonContext } from '@/engine/BabylonProvider'
 
 import { SceneSetup, type EnvironmentPreset, type CameraView } from '@/components/SceneSetup'
 import { PerformanceStats } from '@/components/PerformanceStats'
 import { PartBuilder } from '@/components/PartBuilder'
+import { SnapshotController } from '@/components/SnapshotController'
+import { InspectorController } from '@/components/InspectorController'
+import { WebXRController } from '@/components/WebXRController'
 import { TENT_REGISTRY, getTentType, getWidths, getEaveVariants, getDefaultVariant, type TentVariantInfo } from '@/lib/tentRegistry'
 import { getReactiveCameraConfig } from '@/lib/constants/sceneConfig'
 import { useBottomSheetDrag } from '@/hooks/useBottomSheetDrag'
@@ -137,28 +141,87 @@ function App() {
     setCameraView('orbit')
   }, [])
 
-  // (#18) Screenshot handler
-  const handleScreenshot = useCallback(() => {
-    const canvas = document.getElementById('babylon-canvas') as HTMLCanvasElement | null
-    if (!canvas) { showToast('Could not capture screenshot'); return }
-    canvas.toBlob((blob) => {
-      if (!blob) { showToast('Screenshot failed'); return }
-      const url = URL.createObjectURL(blob)
+  // (#18) Screenshot handler — uses Babylon's render-target capture so the
+  // output resolution is decoupled from the on-screen canvas (lets us export
+  // high-DPI marketing-grade PNGs even on small viewports).
+  const handleScreenshot = useCallback(async () => {
+    const ctx = getActiveBabylonContext()
+    if (!ctx?.scene.activeCamera) {
+      // Fallback to canvas snapshot if engine isn't ready yet
+      const canvas = document.getElementById('babylon-canvas') as HTMLCanvasElement | null
+      if (!canvas) { showToast('Could not capture screenshot'); return }
+      canvas.toBlob((blob) => {
+        if (!blob) { showToast('Screenshot failed'); return }
+        const url = URL.createObjectURL(blob)
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `tent-${tentTypeId}-${numBays}bays.png`
+        a.click()
+        URL.revokeObjectURL(url)
+        showToast('Screenshot saved')
+      }, 'image/png')
+      return
+    }
+    try {
+      // Render at 2× the displayed canvas size, capped at 4K on the long edge
+      const canvas = ctx.canvas
+      const displayW = canvas.clientWidth || canvas.width
+      const displayH = canvas.clientHeight || canvas.height
+      const scale = Math.min(2, 3840 / Math.max(displayW, displayH))
+      const width = Math.round(displayW * scale)
+      const height = Math.round(displayH * scale)
+      const dataUrl = await Tools.CreateScreenshotUsingRenderTargetAsync(
+        ctx.engine,
+        ctx.scene.activeCamera,
+        { width, height },
+        'image/png',
+        4,
+        true,
+      )
       const a = document.createElement('a')
-      a.href = url
+      a.href = dataUrl
       a.download = `tent-${tentTypeId}-${numBays}bays.png`
       a.click()
-      URL.revokeObjectURL(url)
-      showToast('Screenshot saved')
-    }, 'image/png')
+      showToast(`Screenshot saved (${width}×${height})`)
+    } catch (err) {
+      console.warn('Render-target screenshot failed:', err)
+      showToast('Screenshot failed')
+    }
   }, [tentTypeId, numBays, showToast])
 
   // (#18) Share handler
   const handleShare = useCallback(async () => {
-    const canvas = document.getElementById('babylon-canvas') as HTMLCanvasElement | null
-    if (!canvas) { showToast('Could not capture image'); return }
+    const ctx = getActiveBabylonContext()
+    let blob: Blob | null = null
+    if (ctx?.scene.activeCamera) {
+      try {
+        const canvas = ctx.canvas
+        const displayW = canvas.clientWidth || canvas.width
+        const displayH = canvas.clientHeight || canvas.height
+        const scale = Math.min(2, 3840 / Math.max(displayW, displayH))
+        const width = Math.round(displayW * scale)
+        const height = Math.round(displayH * scale)
+        const dataUrl = await Tools.CreateScreenshotUsingRenderTargetAsync(
+          ctx.engine,
+          ctx.scene.activeCamera,
+          { width, height },
+          'image/png',
+          4,
+          true,
+        )
+        // Convert dataURL → Blob (Tools has no ToBlob variant in this version)
+        const res = await fetch(dataUrl)
+        blob = await res.blob()
+      } catch (err) {
+        console.warn('Render-target share capture failed:', err)
+      }
+    }
+    if (!blob) {
+      const canvas = document.getElementById('babylon-canvas') as HTMLCanvasElement | null
+      if (!canvas) { showToast('Could not capture image'); return }
+      blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
+    }
     try {
-      const blob = await new Promise<Blob | null>(resolve => canvas.toBlob(resolve, 'image/png'))
       if (!blob) { showToast('Image capture failed'); return }
       if (navigator.share) {
         const file = new File([blob], `tent-${tentTypeId}-${numBays}bays.png`, { type: 'image/png' })
@@ -191,7 +254,16 @@ function App() {
               cameraUpperRadiusLimit={cameraConfig.upperRadiusLimit}
               cameraView={cameraView}
               onCameraViewReset={handleCameraViewReset}
+              builderMode={builderMode}
+              isLoading={isLoading}
             />
+
+            <SnapshotController
+              isLoading={isLoading}
+              builderMode={builderMode}
+              rebuildKey={`${tentTypeId}|${variantKey}|${numBays}|${environmentPreset}|${cameraView}`}
+            />
+            <InspectorController />
 
             {TentComponent && (
               <>
@@ -374,6 +446,7 @@ function App() {
 
         {/* (#18) Export Buttons — wired up */}
         <div id="export-buttons">
+          <WebXRController />
           <button className="export-btn" onClick={handleScreenshot} aria-label="Save screenshot">Screenshot</button>
           <button className="export-btn primary" onClick={handleShare} aria-label="Share tent design">Share</button>
         </div>

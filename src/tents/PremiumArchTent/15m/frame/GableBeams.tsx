@@ -1,7 +1,7 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
+import { loadGLB, stripAndApplyMaterial, freezeThinInstancedMesh } from '@/lib/utils/GLBLoader'
 import { getAluminumClone } from '@/lib/materials/frameMaterials'
 import { GABLE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 import type { TentSpecs } from '@/types'
@@ -144,10 +144,7 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
           src.scaling.setAll(1)
           src.setEnabled(true)
           src.thinInstanceSetBuffer('matrix', buf, 16)
-          src.thinInstanceRefreshBoundingInfo(false)
-          src.alwaysSelectAsActiveMesh = true
-          src.freezeWorldMatrix()
-          src.freezeNormals()
+          freezeThinInstancedMesh(src)
           allDisposables.push(src)
         }
         onLoadStateChange?.(false)

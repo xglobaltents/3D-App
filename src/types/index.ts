@@ -45,6 +45,10 @@ export interface ProfileSpecs {
 export interface ProfileDimension {
   width: number
   height: number
+  /** Wall thickness in meters (e.g. 0.004 for 4mm aluminum extrusion). */
+  wallThickness?: number
+  /** Number of internal channels in the extrusion profile. */
+  channels?: number
 }
 
 export interface BaseplateSpecs {

@@ -10,7 +10,7 @@ export const VARIANT = '20m'
  *
  * Eave height:  4.26 m
  * Ridge height: 6.90 m
- * Profiles:     same group as 15m (212×112×6 main, 127×76×3 secondary)
+ * Profiles:     same group as 15m (212×112×4mm 4-channel main, 127×76 secondary)
  */
 
 export const TENT_SPECS: TentSpecs = {
@@ -24,11 +24,11 @@ export const TENT_SPECS: TentSpecs = {
 	rafterSlopeAtEave: 0.3116,
 	getArchHeightAtEave: makeArchHeightFn(10.141, 4.26, 6.9),
 	profiles: {
-		upright: { width: 0.212, height: 0.112 },
-		rafter: { width: 0.212, height: 0.112 },
-		gableColumn: { width: 0.127, height: 0.076 },
-		eaveBeam: { width: 0.127, height: 0.076 },
-		gableBeam: { width: 0.127, height: 0.076 },
+		upright: { width: 0.212, height: 0.112, wallThickness: 0.004, channels: 4 },
+		rafter: { width: 0.212, height: 0.112, wallThickness: 0.004, channels: 4 },
+		gableColumn: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
+		eaveBeam: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
+		gableBeam: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
 		mainPurlin: { width: 0.076, height: 0.125 },
 		intermediatePurlin: { width: 0.06, height: 0.06 },
 	},

@@ -33,9 +33,11 @@ export interface TentTypeInfo {
 // ─── Lazy imports — each specs.ts is only loaded when first needed ───────────
 
 // Premium Arch Tent
+import { TENT_SPECS as PAT_10m } from '@/tents/PremiumArchTent/10m/specs'
 import { TENT_SPECS as PAT_15m } from '@/tents/PremiumArchTent/15m/specs'
 import { TENT_SPECS as PAT_15mHigh } from '@/tents/PremiumArchTent/15m-high/specs'
 import { TENT_SPECS as PAT_20m } from '@/tents/PremiumArchTent/20m/specs'
+import { PremiumArchTent10m } from '@/tents/PremiumArchTent/10m/index'
 import { PremiumArchTent15m } from '@/tents/PremiumArchTent/15m/index'
 import { PremiumArchTent15mHigh } from '@/tents/PremiumArchTent/15m-high/index'
 import { PremiumArchTent20m } from '@/tents/PremiumArchTent/20m/index'
@@ -67,6 +69,16 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
     label: 'Premium Arch Tent',
     available: true,
     variants: [
+      {
+        label: 'Premium Arch Tent 10m',
+        key: 'PremiumArchTent/10m',
+        tentType: 'PremiumArchTent',
+        variant: '10m',
+        widthLabel: '10m',
+        specs: PAT_10m,
+        available: true,
+        component: PremiumArchTent10m,
+      },
       {
         label: 'Premium Arch Tent 15m',
         key: 'PremiumArchTent/15m',

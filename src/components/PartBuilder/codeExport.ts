@@ -525,7 +525,7 @@ export function generateComponentFile(
   return `import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial } from '@/lib/utils/GLBLoader'
+import { loadGLB, stripAndApplyMaterial, freezeThinInstancedMesh } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 
@@ -621,10 +621,7 @@ export const ${componentName}: FC<${componentName}Props> = memo(({
           src.scaling.setAll(1)
           src.setEnabled(true)
           src.thinInstanceSetBuffer('matrix', buf, 16)
-          src.thinInstanceRefreshBoundingInfo(false)
-          src.alwaysSelectAsActiveMesh = true
-          src.freezeWorldMatrix()
-          src.freezeNormals()
+          freezeThinInstancedMesh(src)
           allDisposables.push(src)
         }
 

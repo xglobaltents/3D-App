@@ -1,24 +1,43 @@
-import { Scene, SceneLoader, AbstractMesh, Mesh, Matrix, Vector3, Quaternion, type Material } from '@babylonjs/core'
+import {
+  Scene,
+  AbstractMesh,
+  Mesh,
+  Matrix,
+  Vector3,
+  Quaternion,
+  type Material,
+  AssetContainer,
+  LoadAssetContainerAsync,
+  TransformNode,
+} from '@babylonjs/core'
 import '@babylonjs/loaders/glTF'
 
 // ─── GLB Asset Cache ─────────────────────────────────────────────────────────
+//
+// Internally the loader uses Babylon's modern AssetContainer API
+// (`LoadAssetContainerAsync`) and caches the container per (scene, url).
+// Each call to `loadGLB` instantiates fresh meshes via
+// `instantiateModelsToScene` so callers can dispose freely without
+// poisoning the cache.
+//
+// Public return shape is intentionally unchanged from the legacy
+// `SceneLoader.ImportMeshAsync` flow — every caller already knows how to
+// reset transforms / re-parent / set thin instances on the returned meshes.
 
 interface CacheEntry {
-  meshes: AbstractMesh[]
+  container: AssetContainer
   sceneUid: string
   /** World matrix of each mesh at import time (with full parent hierarchy). Keyed by mesh name. */
   worldMatrices: Map<string, Matrix>
-  /** GLTF root transform captured from the import result's transformNodes. */
+  /** GLTF root transform captured from the container's transformNodes. */
   rootTransform?: Matrix
 }
 
 const glbCache = new Map<string, CacheEntry>()
 
-function getImportRootTransform(result: {
-  transformNodes: { name: string; parent: unknown; computeWorldMatrix: (force?: boolean) => Matrix; getWorldMatrix: () => Matrix }[]
-}): Matrix | undefined {
-  const rootNode = result.transformNodes.find((node) => node.name === '__root__')
-    ?? result.transformNodes.find((node) => !node.parent)
+function getContainerRootTransform(container: AssetContainer): Matrix | undefined {
+  const rootNode = container.transformNodes.find((node) => node.name === '__root__')
+    ?? container.transformNodes.find((node) => !node.parent)
 
   if (!rootNode) return undefined
 
@@ -26,16 +45,25 @@ function getImportRootTransform(result: {
   return rootNode.getWorldMatrix().clone()
 }
 
+function captureWorldMatrices(container: AssetContainer): Map<string, Matrix> {
+  const out = new Map<string, Matrix>()
+  for (const m of container.meshes) {
+    if (m instanceof Mesh && m.getTotalVertices() > 0) {
+      m.computeWorldMatrix(true)
+      out.set(m.name, m.getWorldMatrix().clone())
+    }
+  }
+  return out
+}
+
 /**
- * Clear all cached GLB template meshes. Call on scene teardown.
- * Disposes template meshes that belong to the given scene (or all if no scene).
+ * Clear all cached GLB containers. Call on scene teardown.
+ * Disposes containers that belong to the given scene (or all if no scene).
  */
 export function clearGLBCache(scene?: Scene): void {
   if (!scene) {
     for (const entry of glbCache.values()) {
-      for (const m of entry.meshes) {
-        try { m.dispose() } catch { /* already gone */ }
-      }
+      try { entry.container.dispose() } catch { /* already gone */ }
     }
     glbCache.clear()
     return
@@ -43,9 +71,7 @@ export function clearGLBCache(scene?: Scene): void {
   const uid = scene.uid
   for (const [key, entry] of glbCache.entries()) {
     if (entry.sceneUid === uid) {
-      for (const m of entry.meshes) {
-        try { m.dispose() } catch { /* already gone */ }
-      }
+      try { entry.container.dispose() } catch { /* already gone */ }
       glbCache.delete(key)
     }
   }
@@ -53,7 +79,7 @@ export function clearGLBCache(scene?: Scene): void {
 
 // ─── GLB Loading ─────────────────────────────────────────────────────────────
 
-// Concurrency limiter: caps simultaneous SceneLoader.ImportMeshAsync calls.
+// Concurrency limiter: caps simultaneous LoadAssetContainerAsync calls.
 // Parsing GLBs is CPU-heavy (geometry decode, texture upload). Running 8+ in
 // parallel blocks the main thread and delays first visible frame.
 const GLB_CONCURRENCY = 3
@@ -80,9 +106,61 @@ function releaseLoadSlot(): void {
 }
 
 /**
+ * Instantiate fresh meshes from a cached AssetContainer.
+ * Returns the geometry meshes (filters out helper transformNodes).
+ * Each instantiated mesh starts DISABLED until the caller assigns a material.
+ */
+function instantiateFromCache(entry: CacheEntry): AbstractMesh[] {
+  // doNotInstantiate: true → real geometry clones (not GPU-instanced linked copies).
+  // Each tent component sets its own thin instances on the returned meshes,
+  // which requires independent geometry per call.
+  const entries = entry.container.instantiateModelsToScene(
+    (name) => name,
+    /* cloneMaterials */ false,
+    { doNotInstantiate: true },
+  )
+
+  // Collect every geometry mesh under each cloned root, detach it from its
+  // parent (callers reparent freely), then dispose the empty TransformNode
+  // skeleton with doNotRecurse=true so the meshes survive.
+  const out: AbstractMesh[] = []
+  for (const root of entries.rootNodes) {
+    if (!(root instanceof TransformNode)) {
+      continue
+    }
+    // getChildMeshes() with no arg = recursive descendants (matches legacy
+    // ImportMeshAsync.meshes which was a flat list of all geometry).
+    for (const child of root.getChildMeshes()) {
+      // Use raw parent assignment (NOT setParent) so the mesh keeps its
+      // LOCAL transform unchanged. Callers — e.g. the Matrix Chain pattern
+      // documented in /memories/repo/frame-parts-guidance.md — expect the
+      // mesh's matrix to match what `Mesh.clone(name, null)` produced under
+      // the legacy ImportMeshAsync flow: local transform preserved, world
+      // transform recomputed against the new (null) parent. `setParent(null)`
+      // would bake the old world matrix into local and invalidate the chain.
+      child.parent = null
+      out.push(child)
+    }
+    // Now the root and any intermediate TransformNodes are empty — dispose
+    // them WITHOUT recursion so we don't kill the detached meshes.
+    try { root.dispose(/* doNotRecurse */ true) } catch { /* already gone */ }
+  }
+
+  // Match legacy behaviour: clones start disabled until material is applied.
+  for (const m of out) {
+    m.setEnabled(false)
+  }
+  return out
+}
+
+/**
  * Load a GLB model from path. Results are cached by path+scene so the
  * same file is only fetched/parsed once per scene; subsequent calls
- * clone from the cached template meshes.
+ * instantiate fresh meshes from the cached AssetContainer.
+ *
+ * GLB materials are skipped at parse time (`skipMaterials: true`) — every
+ * caller replaces them anyway via `getAluminumMaterial` etc., so loading
+ * them only to dispose them wastes time and risks shared-VAO bugs.
  *
  * Supports AbortSignal for cancellation in React effects.
  */
@@ -96,14 +174,11 @@ export async function loadGLB(
 
   const cached = glbCache.get(key)
   if (cached && cached.sceneUid === scene.uid) {
-    // Clone each cached template mesh — never return the hidden template itself
-    return cloneTemplates(cached.meshes)
+    return instantiateFromCache(cached)
   }
   // Stale cache from a different scene — evict it
   if (cached) {
-    for (const m of cached.meshes) {
-      try { m.dispose() } catch { /* already gone */ }
-    }
+    try { cached.container.dispose() } catch { /* already gone */ }
     glbCache.delete(key)
   }
 
@@ -119,44 +194,44 @@ export async function loadGLB(
   const cachedAfterWait = glbCache.get(key)
   if (cachedAfterWait && cachedAfterWait.sceneUid === scene.uid) {
     releaseLoadSlot()
-    return cloneTemplates(cachedAfterWait.meshes)
+    return instantiateFromCache(cachedAfterWait)
   }
 
-  let result
+  let container: AssetContainer
   try {
-    result = await SceneLoader.ImportMeshAsync('', folder, filename, scene)
+    container = await LoadAssetContainerAsync(folder + filename, scene, {
+      // Skip GLB-embedded materials entirely; every caller assigns its own.
+      // This avoids loading + parsing + disposing throwaway PBRMaterials,
+      // and side-steps the shared-VAO disposal hazards documented in the
+      // legacy `stripAndApplyMaterial` helper below.
+      pluginOptions: { gltf: { skipMaterials: true } },
+    })
   } finally {
     releaseLoadSlot()
   }
 
   // Check abort after async
   if (signal?.aborted) {
-    for (const m of result.meshes) m.dispose()
+    try { container.dispose() } catch { /* already gone */ }
     return []
   }
 
   // Capture each mesh's WORLD matrix while the full parent hierarchy is still
-  // intact.  After caching + cloning, clones lose their parents and only carry
-  // local transforms — these saved world matrices let callers reconstruct the
-  // missing intermediate-node transforms (e.g. Node 4 scale/rotation from
+  // intact in the container (before any instantiation strips parents).
+  // These saved world matrices let callers reconstruct the missing
+  // intermediate-node transforms (e.g. Node 4 scale/rotation from
   // THREE.GLTFExporter GLBs).
-  const worldMatrices = new Map<string, Matrix>()
-  for (const m of result.meshes) {
-    if (m instanceof Mesh && m.getTotalVertices() > 0) {
-      m.computeWorldMatrix(true)
-      worldMatrices.set(m.name, m.getWorldMatrix().clone())
-    }
-  }
-  const rootTransform = getImportRootTransform(result)
+  const worldMatrices = captureWorldMatrices(container)
+  const rootTransform = getContainerRootTransform(container)
 
-  // Store originals as hidden templates — callers get clones so
-  // disposing clones never poisons the cache.
-  for (const m of result.meshes) {
-    m.setEnabled(false)
-  }
-  glbCache.set(key, { meshes: result.meshes, sceneUid: scene.uid, worldMatrices, rootTransform })
+  // The container holds the original (template) meshes. They must NOT be
+  // added to the scene — keep them inert so each `instantiateModelsToScene`
+  // produces fresh independent geometry. `LoadAssetContainerAsync` already
+  // returns a non-added container.
+  const entry: CacheEntry = { container, sceneUid: scene.uid, worldMatrices, rootTransform }
+  glbCache.set(key, entry)
 
-  return cloneTemplates(result.meshes)
+  return instantiateFromCache(entry)
 }
 
 /**
@@ -175,8 +250,9 @@ export function getGLBWorldMatrices(
 }
 
 /**
- * Retrieve the cached GLTF root transform captured from result.transformNodes.
- * This is the actual model-level scale/rotation applied by Babylon's GLTF loader.
+ * Retrieve the cached GLTF root transform captured from the container's
+ * transformNodes. This is the actual model-level scale/rotation applied by
+ * Babylon's GLTF loader.
  */
 export function getGLBRootTransform(
   folder: string,
@@ -187,25 +263,7 @@ export function getGLBRootTransform(
 }
 
 /**
- * Clone template meshes safely — never returns the hidden template itself.
- * Clones start DISABLED to prevent rendering with null/wrong material.
- * Callers must call setEnabled(true) after applying the correct material.
- */
-function cloneTemplates(templates: AbstractMesh[]): AbstractMesh[] {
-  const result: AbstractMesh[] = []
-  for (const m of templates) {
-    const clone = m.clone(m.name, null)
-    if (clone) {
-      clone.setEnabled(false)  // stay hidden until material is applied
-      result.push(clone)
-    }
-    // If clone fails, skip — do NOT return the hidden template (#30)
-  }
-  return result
-}
-
-/**
- * Load GLB and get the root mesh (first mesh with geometry).
+ * Load GLB and get the first mesh with actual geometry.
  * Supports AbortSignal for cancellation.
  */
 export async function loadGLBMesh(
@@ -216,7 +274,6 @@ export async function loadGLBMesh(
 ): Promise<Mesh | null> {
   const meshes = await loadGLB(scene, folder, filename, signal)
   
-  // Find first mesh with actual geometry (skip __root__)
   for (const mesh of meshes) {
     if (mesh instanceof Mesh && mesh.geometry) {
       return mesh
@@ -346,6 +403,26 @@ export function freezeStaticMeshes(meshes: AbstractMesh[]): void {
 }
 
 /**
+ * Apply the standard set of perf flags to a mesh that holds thin instances:
+ *  - Refresh bounding info to encompass ALL instance AABBs (so frustum
+ *    culling works correctly — without `applyToMesh=true` the mesh AABB
+ *    only covers the template at origin and culling silently fails).
+ *  - `doNotSyncBoundingInfo` skips per-frame bounds re-sync (geometry is static).
+ *  - Freeze world matrix and normals for static draw cost.
+ *
+ * Note: we deliberately DO NOT set `alwaysSelectAsActiveMesh = true` — that
+ * disables frustum culling entirely, costing GPU work for off-screen meshes.
+ *
+ * Call this after the LAST `thinInstanceAdd`/`thinInstanceSetBuffer` on the mesh.
+ */
+export function freezeThinInstancedMesh(mesh: Mesh): void {
+  mesh.thinInstanceRefreshBoundingInfo(true)
+  mesh.doNotSyncBoundingInfo = true
+  mesh.freezeWorldMatrix()
+  mesh.freezeNormals()
+}
+
+/**
  * Enhanced thin-instance creation with automatic freezing.
  * After calling this, the mesh and its instances are fully static —
  * world matrix and normals are frozen, bounding info encompasses all instances.
@@ -355,19 +432,7 @@ export function createFrozenThinInstances(
   transforms: InstanceTransform[]
 ): void {
   createThinInstances(mesh, transforms)
-
-  // Refresh bounding info to encompass ALL thin-instance positions.
-  // Without this, the bounding box only covers the template at origin
-  // and frustum culling will hide instances that are far from origin.
-  mesh.thinInstanceRefreshBoundingInfo(false)
-
-  // Ensure the mesh is never frustum-culled — tent parts are the main
-  // scene content and should always render when enabled.
-  mesh.alwaysSelectAsActiveMesh = true
-
-  // Freeze static geometry for perf
-  mesh.freezeWorldMatrix()
-  mesh.freezeNormals()
+  freezeThinInstancedMesh(mesh)
 }
 
 // ─── World Bounds Measurement ────────────────────────────────────────────────
