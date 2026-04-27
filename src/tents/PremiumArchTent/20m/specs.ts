@@ -6,7 +6,8 @@ export const TENT_TYPE = 'PremiumArchTent'
 export const VARIANT = '20m'
 
 /**
- * Premium Arch Tent 20m — from Arch Tent Technical Data PDF (page 4).
+ * Premium Arch Tent 20m — standard variant from Arch Tent Technical Data PDF
+ * (page 4).
  *
  * Eave height:  4.26 m
  * Ridge height: 6.90 m
@@ -41,6 +42,14 @@ export const TENT_SPECS: TentSpecs = {
 	gableSupportPositions: [-5, 0, 5],
 	mainPurlinX: [-5, 0, 5],
 	intermediatePurlinX: [-7.5, -5, -2.5, 0, 2.5, 5, 7.5],
+}
+
+export const TENT_SPECS_6M: TentSpecs = {
+	...TENT_SPECS,
+	name: 'Premium Arch Tent 20m (6m Eave)',
+	eaveHeight: 6,
+	ridgeHeight: 8.64,
+	getArchHeightAtEave: makeArchHeightFn(10.141, 6, 8.64),
 }
 
 export function getTentLength(numBays: number, specs: TentSpecs = TENT_SPECS): number {

@@ -36,11 +36,11 @@ export interface TentTypeInfo {
 import { TENT_SPECS as PAT_10m } from '@/tents/PremiumArchTent/10m/specs'
 import { TENT_SPECS as PAT_15m } from '@/tents/PremiumArchTent/15m/specs'
 import { TENT_SPECS as PAT_15mHigh } from '@/tents/PremiumArchTent/15m-high/specs'
-import { TENT_SPECS as PAT_20m } from '@/tents/PremiumArchTent/20m/specs'
-import { TENT_SPECS as PAT_25m } from '@/tents/PremiumArchTent/25m/specs'
-import { TENT_SPECS as PAT_30m } from '@/tents/PremiumArchTent/30m/specs'
-import { TENT_SPECS as PAT_40m } from '@/tents/PremiumArchTent/40m/specs'
-import { TENT_SPECS as PAT_50m } from '@/tents/PremiumArchTent/50m/specs'
+import { TENT_SPECS as PAT_20m, TENT_SPECS_6M as PAT_20m6m } from '@/tents/PremiumArchTent/20m/specs'
+import { TENT_SPECS as PAT_25m, TENT_SPECS_6M as PAT_25m6m } from '@/tents/PremiumArchTent/25m/specs'
+import { TENT_SPECS as PAT_30m, TENT_SPECS_6M as PAT_30m6m } from '@/tents/PremiumArchTent/30m/specs'
+import { TENT_SPECS as PAT_40m, TENT_SPECS_6M as PAT_40m6m } from '@/tents/PremiumArchTent/40m/specs'
+import { TENT_SPECS as PAT_50m, TENT_SPECS_6M as PAT_50m6m } from '@/tents/PremiumArchTent/50m/specs'
 import { PremiumArchTent10m } from '@/tents/PremiumArchTent/10m/index'
 import { PremiumArchTent15m } from '@/tents/PremiumArchTent/15m/index'
 import { PremiumArchTent15mHigh } from '@/tents/PremiumArchTent/15m-high/index'
@@ -115,7 +115,19 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         tentType: 'PremiumArchTent',
         variant: '20m',
         widthLabel: '20m',
+        eaveLabel: '4.26m (Standard)',
         specs: PAT_20m,
+        available: true,
+        component: PremiumArchTent20m,
+      },
+      {
+        label: 'Premium Arch Tent 20m (6m Eave)',
+        key: 'PremiumArchTent/20m-6m',
+        tentType: 'PremiumArchTent',
+        variant: '20m',
+        widthLabel: '20m',
+        eaveLabel: '6.00m',
+        specs: PAT_20m6m,
         available: true,
         component: PremiumArchTent20m,
       },
@@ -125,7 +137,19 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         tentType: 'PremiumArchTent',
         variant: '25m',
         widthLabel: '25m',
+        eaveLabel: '4.26m (Standard)',
         specs: PAT_25m,
+        available: true,
+        component: PremiumArchTent25m,
+      },
+      {
+        label: 'Premium Arch Tent 25m (6m Eave)',
+        key: 'PremiumArchTent/25m-6m',
+        tentType: 'PremiumArchTent',
+        variant: '25m',
+        widthLabel: '25m',
+        eaveLabel: '6.00m',
+        specs: PAT_25m6m,
         available: true,
         component: PremiumArchTent25m,
       },
@@ -135,7 +159,19 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         tentType: 'PremiumArchTent',
         variant: '30m',
         widthLabel: '30m',
+        eaveLabel: '4.25m (Standard)',
         specs: PAT_30m,
+        available: true,
+        component: PremiumArchTent30m,
+      },
+      {
+        label: 'Premium Arch Tent 30m (6m Eave)',
+        key: 'PremiumArchTent/30m-6m',
+        tentType: 'PremiumArchTent',
+        variant: '30m',
+        widthLabel: '30m',
+        eaveLabel: '6.00m',
+        specs: PAT_30m6m,
         available: true,
         component: PremiumArchTent30m,
       },
@@ -145,7 +181,19 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         tentType: 'PremiumArchTent',
         variant: '40m',
         widthLabel: '40m',
+        eaveLabel: '4.25m (Standard)',
         specs: PAT_40m,
+        available: true,
+        component: PremiumArchTent40m,
+      },
+      {
+        label: 'Premium Arch Tent 40m (6m Eave)',
+        key: 'PremiumArchTent/40m-6m',
+        tentType: 'PremiumArchTent',
+        variant: '40m',
+        widthLabel: '40m',
+        eaveLabel: '6.00m',
+        specs: PAT_40m6m,
         available: true,
         component: PremiumArchTent40m,
       },
@@ -155,7 +203,19 @@ export const TENT_REGISTRY: TentTypeInfo[] = [
         tentType: 'PremiumArchTent',
         variant: '50m',
         widthLabel: '50m',
+        eaveLabel: '4.25m (Standard)',
         specs: PAT_50m,
+        available: true,
+        component: PremiumArchTent50m,
+      },
+      {
+        label: 'Premium Arch Tent 50m (6m Eave)',
+        key: 'PremiumArchTent/50m-6m',
+        tentType: 'PremiumArchTent',
+        variant: '50m',
+        widthLabel: '50m',
+        eaveLabel: '6.00m',
+        specs: PAT_50m6m,
         available: true,
         component: PremiumArchTent50m,
       },

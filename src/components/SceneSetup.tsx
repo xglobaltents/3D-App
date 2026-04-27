@@ -15,7 +15,6 @@ import {
   PBRMaterial,
   Scene as BScene,
   ScenePerformancePriority,
-  ShadowGenerator,
   ShaderMaterial,
   Texture,
   Vector3,
@@ -28,7 +27,6 @@ import '@babylonjs/core/Engines/WebGPU/Extensions/engine.dynamicTexture'
 import { GridMaterial } from '@babylonjs/materials'
 import {
   SCENE_CONFIG,
-  getShadowMapSize,
   getStudioPresetColors,
   type EnvironmentPreset,
 } from '@/lib/constants/sceneConfig'
@@ -97,74 +95,6 @@ const SKY_FRAGMENT = `
 
 Effect.ShadersStore['skyGradientVertexShader'] = SKY_VERTEX
 Effect.ShadersStore['skyGradientFragmentShader'] = SKY_FRAGMENT
-
-// ─── Shared Shadow Caster Helper ─────────────────────────────────────────────
-
-const SHADOW_TRI_THRESHOLD = 100
-
-function shouldCastShadow(mesh: Mesh, excludeMeshes: Mesh[]): boolean {
-  if (excludeMeshes.includes(mesh)) return false
-  if (!mesh.isEnabled() || !mesh.isVisible) return false
-  if (mesh.metadata?.noShadow) return false
-  const tris = Math.floor(mesh.getTotalIndices() / 3)
-  return tris >= SHADOW_TRI_THRESHOLD
-}
-
-function registerShadowCasters(
-  scene: BScene,
-  shadowGen: ShadowGenerator,
-  excludeMeshes: Mesh[]
-): { dispose(): void } {
-  for (const m of scene.meshes) {
-    if (m instanceof Mesh && shouldCastShadow(m, excludeMeshes)) {
-      shadowGen.addShadowCaster(m)
-    }
-  }
-
-  // Batch new mesh additions — during initial load, many meshes arrive in rapid
-  // succession. Collecting them and adding in one batch avoids repeated shadow
-  // map regeneration (expensive GPU work).
-  let pendingAdds: Mesh[] = []
-  let batchTimer: ReturnType<typeof setTimeout> | null = null
-  let disposed = false
-
-  const flushPending = () => {
-    batchTimer = null
-    if (disposed || pendingAdds.length === 0) return
-    for (const m of pendingAdds) {
-      if (shouldCastShadow(m, excludeMeshes)) {
-        shadowGen.addShadowCaster(m)
-      }
-    }
-    pendingAdds = []
-  }
-
-  const addObs = scene.onNewMeshAddedObservable.add((m) => {
-    if (m instanceof Mesh && shouldCastShadow(m, excludeMeshes)) {
-      pendingAdds.push(m)
-      if (!batchTimer) {
-        batchTimer = setTimeout(flushPending, 50)
-      }
-    }
-  })
-  const removeObs = scene.onMeshRemovedObservable.add((m) => {
-    if (m instanceof Mesh) {
-      // Remove from pending if not yet flushed
-      const idx = pendingAdds.indexOf(m)
-      if (idx >= 0) pendingAdds.splice(idx, 1)
-      shadowGen.removeShadowCaster(m)
-    }
-  })
-  return {
-    dispose() {
-      disposed = true
-      if (batchTimer) clearTimeout(batchTimer)
-      pendingAdds = []
-      scene.onNewMeshAddedObservable.remove(addObs)
-      scene.onMeshRemovedObservable.remove(removeObs)
-    },
-  }
-}
 
 // ─── Procedural Environment Fallback ─────────────────────────────────────────
 
@@ -274,10 +204,9 @@ interface Disposable { dispose(): void }
 
 function setupDefaultEnvironment(scene: BScene): Disposable {
   const {
-    sky, defaultGround, defaultLighting, defaultShadow,
+    sky, defaultGround, defaultLighting,
     environment,
   } = SCENE_CONFIG
-  const mapSize = getShadowMapSize()
 
   // ── Sky shader ──
   const skyDome = MeshBuilder.CreateSphere('sky-dome', {
@@ -423,17 +352,6 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
 
   scene.clearColor = new Color4(gc.horizon.r, gc.horizon.g, gc.horizon.b, 1.0)
 
-  // ── Shadow generator (sun) ──
-  const ds = defaultShadow
-  const shadowGen = new ShadowGenerator(mapSize, sunLight)
-  shadowGen.useBlurExponentialShadowMap = true
-  shadowGen.blurKernel = ds.blurKernel
-  shadowGen.bias = ds.bias
-  shadowGen.normalBias = ds.normalBias
-  shadowGen.setDarkness(ds.darkness)
-
-  const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, skyDome])
-
   // ── Scene settings ──
   scene.autoClear = true
   scene.autoClearDepthAndStencil = true
@@ -444,8 +362,6 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
 
   return {
     dispose() {
-      shadowObs.dispose()
-      shadowGen.dispose()
       bottomLight.dispose()
       fillLight.dispose()
       sunLight.dispose()
@@ -464,9 +380,8 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
 // ─── Studio Environment: PBR ground + grid + IBL + 2-light rig ──────────────
 
 function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Disposable {
-  const { studioGround, grid, environment, studioLighting, studioShadow } = SCENE_CONFIG
+  const { studioGround, grid, environment, studioLighting } = SCENE_CONFIG
   const colors = getStudioPresetColors(preset)
-  const mapSize = getShadowMapSize()
 
   scene.clearColor = colors.clearColor.clone()
 
@@ -522,15 +437,6 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
   dirLight.position = sl.directional.position.clone()
   dirLight.intensity = colors.dirIntensity
 
-  // ── Shadow generator ──
-  const ss = studioShadow
-  const shadowGen = new ShadowGenerator(mapSize, dirLight)
-  shadowGen.useBlurExponentialShadowMap = true
-  shadowGen.blurKernel = ss.blurKernel
-  shadowGen.setDarkness(ss.darkness)
-
-  const shadowObs = registerShadowCasters(scene, shadowGen, [groundMesh, gridMesh])
-
   // ── IBL environment with procedural fallback ──
   const envResult = setupEnvironmentTexture(scene, environment.iblUrl, colors.environmentIntensity)
 
@@ -543,8 +449,6 @@ function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Dispo
 
   return {
     dispose() {
-      shadowObs.dispose()
-      shadowGen.dispose()
       dirLight.dispose()
       hemiLight.dispose()
       gridMesh.dispose()

@@ -148,7 +148,7 @@ export const SCENE_CONFIG = {
       taa:  { enabled: true, samples: 8,  factor: 0.85 },
       // SSAO2 + TAA: gated to WebGL only in postProcessing.ts. WebGPU
       // (HDR + rgba16float) trips a binding-resource conflict upstream.
-      ssao: { enabled: true, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 1.0,
+      ssao: { enabled: false, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 1.0,
               samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
     },
     white: {
@@ -156,7 +156,7 @@ export const SCENE_CONFIG = {
       sharpen: { enabled: true, edgeAmount: 0.45, colorAmount: 1.0 },
       bloom: { enabled: false, threshold: 0.9, weight: 0.1, kernel: 64, scale: 0.5 },
       taa:  { enabled: true, samples: 8,  factor: 0.85 },
-      ssao: { enabled: true, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 0.9,
+      ssao: { enabled: false, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 0.9,
               samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
     },
     black: {
@@ -164,7 +164,7 @@ export const SCENE_CONFIG = {
       sharpen: { enabled: true, edgeAmount: 0.5, colorAmount: 1.0 },
       bloom: { enabled: true, threshold: 1.2, weight: 0.12, kernel: 64, scale: 0.5 },
       taa:  { enabled: true, samples: 8,  factor: 0.85 },
-      ssao: { enabled: true, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 1.0,
+      ssao: { enabled: false, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 1.0,
               samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
     },
   },
