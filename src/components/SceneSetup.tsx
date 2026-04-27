@@ -10,7 +10,6 @@ import {
   EasingFunction,
   Effect,
   HemisphericLight,
-  Mesh,
   MeshBuilder,
   PBRMaterial,
   Scene as BScene,
