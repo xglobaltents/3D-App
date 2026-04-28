@@ -12,8 +12,9 @@ import { EAVE_SIDE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistr
 // Registry: EAVE_SIDE_BEAM_REG (centralized RAW extents + axis mapping)
 //
 // Axis mapping (from registry):
-//   X,Y = cross-section (FIXED per GLB)
-//   Z   = beam length (PARAMETRIC — scales with bayDistance)
+//   X   = profile width  (from specs.profiles.eaveBeam.width)
+//   Y   = profile height (from specs.profiles.eaveBeam.height)
+//   Z   = beam length    (PARAMETRIC — scales with bayDistance)
 //
 // Pattern A: bay-to-bay × 2 sides
 // ═════════════════════════════════════════════════════════════

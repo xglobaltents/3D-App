@@ -1,4 +1,5 @@
 import type { TentSpecs } from '@/types'
+import { SHARED_EAVE_BEAM_PROFILE } from '@/lib/constants/profileDefaults'
 
 export const TENT_TYPE = 'RevolutionTent'
 export const VARIANT = '15m'
@@ -15,7 +16,7 @@ export const TENT_SPECS: TentSpecs = {
     upright: { width: 0.2, height: 0.1 },
     rafter: { width: 0.2, height: 0.1 },
     gableColumn: { width: 0.12, height: 0.08 },
-    eaveBeam: { width: 0.12, height: 0.08 },
+    eaveBeam: SHARED_EAVE_BEAM_PROFILE,
     gableBeam: { width: 0.12, height: 0.08 },
     mainPurlin: { width: 0.08, height: 0.12 },
     intermediatePurlin: { width: 0.06, height: 0.06 },

@@ -1,6 +1,7 @@
 import type { TentSpecs } from '@/types'
 import { getFramePath, getCoversPath } from '@/lib/constants/assetPaths'
 import { makeArchHeightFn } from '@/lib/utils/archMath'
+import { SHARED_EAVE_BEAM_PROFILE } from '@/lib/constants/profileDefaults'
 
 export const TENT_TYPE = 'PremiumArchTent'
 export const VARIANT = '15m'
@@ -25,7 +26,7 @@ export const TENT_SPECS: TentSpecs = {
 		upright: { width: 0.212, height: 0.112, wallThickness: 0.004, channels: 4 },
 		rafter: { width: 0.212, height: 0.112, wallThickness: 0.004, channels: 4 },
 		gableColumn: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
-		eaveBeam: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
+		eaveBeam: SHARED_EAVE_BEAM_PROFILE,
 		gableBeam: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
 		mainPurlin: { width: 0.076, height: 0.125 },
 		intermediatePurlin: { width: 0.06, height: 0.06 },

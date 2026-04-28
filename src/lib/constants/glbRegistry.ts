@@ -19,6 +19,7 @@
  */
 
 import type { ProfileSpecs } from '@/types'
+import { SHARED_EAVE_BEAM_PROFILE } from '@/lib/constants/profileDefaults'
 
 /* ─── Types ───────────────────────────────────────────────────────────────── */
 
@@ -111,20 +112,23 @@ export const UPRIGHT_REG: GLBPartRegistry = {
 }
 
 /**
- * Eave Side Beam — shared GLB (assembly with end plates, 127×76 profile).
- * Nominal profile: 127×76mm eaveBeam.
- * Cross-section is a complex assembly — can't derive scale from profile alone.
- *   GLB X = cross-section  (raw 1190)  → fixed (calibrated 0.0001479)
- *   GLB Y = cross-section  (raw 1048)  → fixed (calibrated 0.0001479)
- *   GLB Z = beam length    (raw 50)    → parametric with bayDistance
+ * Eave Side Beam — shared GLB (assembly with end plates).
+ * Target profile: shared eaveBeam from specs (160×140mm).
+ * Raw extents from vertex buffer:
+ *   GLB X = profile WIDTH envelope   (raw 1190)
+ *   GLB Y = profile HEIGHT envelope  (raw 1048)
+ *   GLB Z = beam LENGTH              (raw 50)
  */
 export const EAVE_SIDE_BEAM_REG: GLBPartRegistry = {
   name: 'Eave Side Beam',
   profileKey: 'eaveBeam',
-  nominalProfile: { width: 0.127, height: 0.076 },
+  nominalProfile: {
+    width: SHARED_EAVE_BEAM_PROFILE.width,
+    height: SHARED_EAVE_BEAM_PROFILE.height,
+  },
   axes: {
-    x: { role: { type: 'fixed', scale: 0.0001479 }, raw: 1190 },
-    y: { role: { type: 'fixed', scale: 0.0001479 }, raw: 1048 },
+    x: { role: { type: 'profileWidth' }, raw: 1190 },
+    y: { role: { type: 'profileHeight' }, raw: 1048 },
     z: { role: { type: 'length', source: 'bayDistance' }, raw: 50 },
   },
 }

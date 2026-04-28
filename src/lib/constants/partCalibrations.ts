@@ -19,11 +19,12 @@ export interface PartCalibration {
 }
 
 export const PART_CALIBRATIONS: Record<string, PartCalibration> = {
-  // PartBuilder-proven values.
+  // Metadata-only for PartBuilder's calibration export UI.
+  // Runtime/default eave-side-beam scaling comes from EAVE_SIDE_BEAM_REG.
   'eave-side-beam': {
     profileKey: 'eaveBeam',
-    crossScale: 0.0001479,
-    calibratedProfileW: 0.127,
+    crossScale: 0.0001340,
+    calibratedProfileW: 0.16,
     lengthScalePerMeter: 0.02,
     lengthSource: 'bayDistance',
     lengthAxis: 'z',

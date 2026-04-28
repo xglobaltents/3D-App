@@ -1,6 +1,7 @@
 import type { TentSpecs } from '@/types'
 import { getFramePath, getCoversPath } from '@/lib/constants/assetPaths'
 import { makeArchHeightFn } from '@/lib/utils/archMath'
+import { SHARED_EAVE_BEAM_PROFILE } from '@/lib/constants/profileDefaults'
 
 export const TENT_TYPE = 'PremiumArchTent'
 export const VARIANT = '10m'
@@ -12,7 +13,8 @@ export const VARIANT = '10m'
  * Eave Height:      3.2 m
  * Ridge Height:     4.7 m
  * Bay Distance:     5 m
- * Main Profile:     127 × 76 × 3 mm (4-Channel) — uprights, rafters, gables, beams
+ * Main Profile:     127 × 76 × 3 mm (4-Channel) — uprights, rafters, gable members
+ * Eave Beam:        160 × 140 mm
  * Purlin:           60 × 60
  * Material:         Hard-pressed extruded aluminum 6082 / T6
  */
@@ -29,11 +31,11 @@ export const TENT_SPECS: TentSpecs = {
 	rafterSlopeAtEave: 0.2977,
 	getArchHeightAtEave: makeArchHeightFn(5.0707, 3.2, 4.7),
 	profiles: {
-		// 10m uses the smaller 127×76×3 profile for ALL main frame members
+		// 10m keeps the smaller 127×76×3 profile for uprights, rafters, and gable members.
 		upright: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
 		rafter: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
 		gableColumn: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
-		eaveBeam: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
+		eaveBeam: SHARED_EAVE_BEAM_PROFILE,
 		gableBeam: { width: 0.127, height: 0.076, wallThickness: 0.003, channels: 4 },
 		mainPurlin: { width: 0.06, height: 0.06 },
 		intermediatePurlin: { width: 0.06, height: 0.06 },

@@ -82,8 +82,7 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
     halfWidth: specs.halfWidth,
   }
 
-  const eaveSideScale = getPartCalibrationScale('eave-side-beam', specs)
-    ?? computePartScale(EAVE_SIDE_BEAM_REG, scaleCtx)
+  const eaveSideScale = computePartScale(EAVE_SIDE_BEAM_REG, scaleCtx)
   // Keep gable beam on registry mapping so PartBuilder matches runtime
   // component behavior (runtime uses independent X/Y profile scaling).
   const gableBeamScale = computePartScale(GABLE_BEAM_REG, scaleCtx)

@@ -266,7 +266,9 @@ export const SCENE_CONFIG = {
     },
 
     lowerBetaLimit: 0.3,
-    upperBetaLimit: Math.PI / 2 - 0.1,
+    // Allow the camera to dip below the target so users can look upward
+    // from inside the tent. SceneSetup applies a dynamic ground-safe clamp.
+    upperBetaLimit: Math.PI - 0.1,
 
     // Inertia & damping (#4)
     inertia: 0.85,

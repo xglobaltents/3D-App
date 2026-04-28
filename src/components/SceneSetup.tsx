@@ -532,6 +532,15 @@ function animateCameraToView(
 }
 
 const CAMERA_ANIM_GROUP_NAME = 'cameraViewAnim'
+const GROUND_TARGET_Y_MIN = 0
+const GROUND_CAMERA_CLEARANCE = 0.6
+
+function getMaxBetaAboveGround(camera: ArcRotateCamera, minCameraY = GROUND_CAMERA_CLEARANCE): number {
+  const safeRadius = Math.max(camera.radius, 1e-4)
+  const normalized = (minCameraY - camera.target.y) / safeRadius
+  const clamped = Math.max(-1, Math.min(1, normalized))
+  return Math.acos(clamped)
+}
 
 // ─── Component ───────────────────────────────────────────────────────────────
 
@@ -604,8 +613,9 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     camera.angularSensibilityX = camConfig.angularSensibilityX
     camera.angularSensibilityY = camConfig.angularSensibilityY
 
-    // Pan along the ground plane (XZ) instead of camera-local up/down
-    camera.panningAxis = new Vector3(1, 0, 1)
+    // Allow panning in world space, including vertical target moves.
+    // Ground clamps below keep both target and camera from dropping underground.
+    camera.panningAxis = new Vector3(1, 1, 1)
 
     if (canvas) camera.attachControl(canvas, true)
     scene.activeCamera = camera
@@ -624,10 +634,20 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     // brushed-aluminum specular highlights — replaces the prior "no AA"
     // trade-off documented here previously.
 
-    // Clamp camera target so panning can't go below ground
+    // Clamp target/camera so users can pan down to ground level and look up
+    // from inside the tent without letting the camera dip below ground.
     const onAfterInput = camera.onAfterCheckInputsObservable.add(() => {
-      if (camera.target.y < 0) {
-        camera.target.y = 0
+      if (camera.target.y < GROUND_TARGET_Y_MIN) {
+        camera.target.y = GROUND_TARGET_Y_MIN
+      }
+
+      const dynamicUpperBeta = Math.min(
+        camConfig.upperBetaLimit,
+        getMaxBetaAboveGround(camera),
+      )
+
+      if (camera.beta > dynamicUpperBeta) {
+        camera.beta = dynamicUpperBeta
       }
     })
 
