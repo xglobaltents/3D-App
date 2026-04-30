@@ -306,51 +306,53 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
     const mat = new PBRMaterial('shared-aluminum-frame', s)
     const profile = INTENSITY_PROFILES[activePreset].aluminum
 
-    mat.albedoColor = new Color3(0.78, 0.79, 0.81)
-    mat.metallic = 0.95
-    // Tighter base roughness → sharper hotspot, samples crisper IBL mip
-    // levels (the prefiltered .env's blurry top mips were the main cause
-    // of the "low-res" look). Brushed roughness map modulates this per-pixel.
-    mat.roughness = 0.22
+    // Cool-neutral aluminum tint. Slight blue bias counter-balances the
+    // warm sun light (1.0, 0.98, 0.95) and prevents the warm IBL bounce
+    // (terracotta ground) from making the metal look orange/red.
+    // Real anodized aluminum F0 ≈ (0.91, 0.92, 0.93) — neutral-cool.
+    mat.albedoColor = new Color3(0.86, 0.88, 0.92)
+    mat.metallic = 0.85
+    // Slightly higher roughness softens the specular hotspot so warm
+    // sun + warm ground reflections don't pop as orange peaks. Brushed
+    // roughness map still modulates this per-pixel for the streaky look.
+    mat.roughness = 0.32
 
-    // Fixed reflection cubemap — shared across all metals
+    // Reflection tinted slightly cool to neutralize warm scene content
+    // bouncing into the metal (the main source of the red/orange cast).
     const refl = getMetalReflection(s)
     refl.anisotropicFilteringLevel = 16
     mat.reflectionTexture = refl
+    mat.reflectionColor = new Color3(0.92, 0.95, 1.0)
 
     // ── Brushed-aluminum micro-detail ──
     const { bump, roughness: roughTex } = getBrushedTextures(s)
     mat.bumpTexture = bump
-    // PBR convention: green channel = roughness, blue = metallic.
-    // useRoughnessFromMetallicTextureGreen multiplies the green channel
-    // with mat.roughness, giving streaky anisotropic-looking highlights.
+    // Only use the GREEN channel (roughness modulation). Disabling the
+    // metallic + AO channels means `mat.metallic` (0.85) is the actual
+    // metallic value — previously the texture's blue=255 was forcing
+    // metallic to 1.0 per-pixel, making the spec hotspot extra hungry
+    // for warm light and visibly red.
     mat.metallicTexture = roughTex
     mat.useRoughnessFromMetallicTextureGreen = true
-    mat.useMetallnessFromMetallicTextureBlue = true
-    mat.useAmbientOcclusionFromMetallicTextureRed = true
-    // Subtle bump — brushed lines should be visible but never dominate
-    mat.bumpTexture.level = 0.35
-    // Don't invert tangent-space normal map (Babylon expects OpenGL-style)
+    mat.useMetallnessFromMetallicTextureBlue = false
+    mat.useAmbientOcclusionFromMetallicTextureRed = false
+    mat.bumpTexture.level = 0.3
     mat.invertNormalMapX = false
     mat.invertNormalMapY = false
 
-    // Tile the brushed pattern in world-ish units. We can't easily get
-    // per-mesh UV scale here, so the tiling values are tuned to look good
-    // on tube/plate frame parts at typical 0.5–4 m sizes.
     bump.uScale = BRUSHED_TILING_U
     bump.vScale = BRUSHED_TILING_V
     roughTex.uScale = BRUSHED_TILING_U
     roughTex.vScale = BRUSHED_TILING_V
 
-    // Use target intensity directly — render loop is deferred until IBL ready
+    // Slightly trim direct-light intensity to dial the warm-sun spec
+    // contribution back without darkening the diffuse read.
     mat.environmentIntensity = profile.environmentIntensity
-    mat.directIntensity = profile.directIntensity
-    mat.specularIntensity = profile.specularIntensity
+    mat.directIntensity = profile.directIntensity * 0.85
+    mat.specularIntensity = profile.specularIntensity * 0.8
 
     mat.useRadianceOverAlpha = true
     mat.useSpecularOverAlpha = true
-    // Geometric specular AA: widens the roughness lobe based on screen-space
-    // normal derivatives so thin tubing doesn't shimmer/blink at distance.
     mat.enableSpecularAntiAliasing = true
     mat.backFaceCulling = true
 
