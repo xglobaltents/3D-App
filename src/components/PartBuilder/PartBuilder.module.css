@@ -67,6 +67,35 @@
   font-weight: 600;
 }
 
+.scopeBox {
+  margin-bottom: 8px;
+  padding: 8px 10px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+}
+
+.scopeTitle {
+  font-size: 10px;
+  color: var(--text-tertiary);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 3px;
+}
+
+.scopeValue {
+  font-size: 12px;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.scopeMeta {
+  margin-top: 2px;
+  font-size: 10px;
+  color: var(--text-secondary);
+  font-family: monospace;
+}
+
 /* ── Select / Dropdown ───────────────────────────────────────────────────── */
 
 .select {

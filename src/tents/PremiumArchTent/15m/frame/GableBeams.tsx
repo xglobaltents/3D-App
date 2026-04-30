@@ -53,6 +53,16 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
     // is the only reliable fix; the singleton path produces visible flicker.
     const aluminumMat = getAluminumClone(scene, 'aluminum-gable-beams', (m) => {
       m.backFaceCulling = false
+      // Gable-beam GLB has no UV1 coordinates, so the shared aluminum's
+      // brushed bump + roughness textures (which sample UV1) cannot be
+      // applied — they render as black/invisible. Strip them here.
+      m.bumpTexture = null
+      m.metallicTexture = null
+      m.useRoughnessFromMetallicTextureGreen = false
+      m.useMetallnessFromMetallicTextureBlue = false
+      m.useAmbientOcclusionFromMetallicTextureRed = false
+      // Slightly higher roughness compensates for the missing micro-detail.
+      m.roughness = 0.32
     })
 
     onLoadStateChange?.(true)

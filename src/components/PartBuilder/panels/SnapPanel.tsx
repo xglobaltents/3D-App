@@ -1,10 +1,15 @@
 import { type FC, useState } from 'react'
 import type { AlignSpecs } from '../hooks/usePartTransform'
+import type { TransformValues } from '../types'
 import styles from '../PartBuilder.module.css'
 
 interface SnapPanelProps {
   lineZs: number[]
   specs: AlignSpecs
+  currentTransform: TransformValues
+  gableSupportPositions: number[]
+  mainPurlinX: number[]
+  intermediatePurlinX: number[]
   snapEnabled: boolean
   gridSize: number
   onSetSnapEnabled: (on: boolean) => void
@@ -16,6 +21,10 @@ interface SnapPanelProps {
 export const SnapPanel: FC<SnapPanelProps> = ({
   lineZs,
   specs,
+  currentTransform,
+  gableSupportPositions,
+  mainPurlinX,
+  intermediatePurlinX,
   snapEnabled,
   gridSize,
   onSetSnapEnabled,
@@ -25,11 +34,13 @@ export const SnapPanel: FC<SnapPanelProps> = ({
 }) => {
   const [selectedLine, setSelectedLine] = useState(0)
   const [selectedSide, setSelectedSide] = useState<'right' | 'left'>('right')
-  const [snapY, setSnapY] = useState<'eave' | 'ground'>('eave')
+  const [snapY, setSnapY] = useState<'eave' | 'ground' | 'ridge'>('eave')
 
   const yPos = snapY === 'eave'
     ? specs.baseplateTop + specs.eaveHeight
-    : specs.baseplateTop
+    : snapY === 'ridge'
+      ? specs.baseplateTop + specs.ridgeHeight
+      : specs.baseplateTop
 
   const quickPoints = [
     { label: 'Front-Right', x: -specs.halfWidth, z: -specs.halfLength },
@@ -38,6 +49,8 @@ export const SnapPanel: FC<SnapPanelProps> = ({
     { label: 'Back-Left', x: specs.halfWidth, z: specs.halfLength },
     { label: 'Center', x: 0, z: 0 },
   ]
+
+  const formatAnchor = (v: number) => `${v >= 0 ? '+' : ''}${v.toFixed(2)}m`
 
   return (
     <div className={styles.section}>
@@ -92,6 +105,12 @@ export const SnapPanel: FC<SnapPanelProps> = ({
         >
           Ground
         </button>
+        <button
+          className={`${styles.smallBtn} ${snapY === 'ridge' ? styles.smallBtnActive : ''}`}
+          onClick={() => setSnapY('ridge')}
+        >
+          Ridge Height
+        </button>
       </div>
       <div className={styles.alignGrid}>
         {quickPoints.map((p) => (
@@ -101,6 +120,116 @@ export const SnapPanel: FC<SnapPanelProps> = ({
             onClick={() => onQuickSnap(p.x, yPos, p.z)}
           >
             {p.label}
+          </button>
+        ))}
+      </div>
+
+      <div className={styles.sectionTitle} style={{ marginTop: 10 }}>
+        Level Anchors
+      </div>
+      <div className={styles.alignGrid}>
+        {[
+          { label: 'Ground', y: specs.baseplateTop },
+          { label: 'Eave', y: specs.baseplateTop + specs.eaveHeight },
+          { label: 'Ridge', y: specs.baseplateTop + specs.ridgeHeight },
+        ].map((anchor) => (
+          <button
+            key={anchor.label}
+            className={styles.alignBtn}
+            onClick={() => onQuickSnap(currentTransform.px, anchor.y, currentTransform.pz)}
+          >
+            {anchor.label}
+          </button>
+        ))}
+      </div>
+
+      <div className={styles.sectionTitle} style={{ marginTop: 10 }}>
+        X Anchors
+      </div>
+      <div className={styles.alignGrid}>
+        {[
+          { label: 'Right Edge', x: -specs.halfWidth },
+          { label: 'Center', x: 0 },
+          { label: 'Left Edge', x: specs.halfWidth },
+        ].map((anchor) => (
+          <button
+            key={anchor.label}
+            className={styles.alignBtn}
+            onClick={() => onQuickSnap(anchor.x, currentTransform.py, currentTransform.pz)}
+          >
+            {anchor.label}
+          </button>
+        ))}
+      </div>
+
+      {gableSupportPositions.length > 0 && (
+        <>
+          <div className={styles.sectionTitle} style={{ marginTop: 10 }}>
+            Gable Support X
+          </div>
+          <div className={styles.alignGrid}>
+            {gableSupportPositions.map((x) => (
+              <button
+                key={`gable-${x}`}
+                className={styles.alignBtn}
+                onClick={() => onQuickSnap(x, currentTransform.py, currentTransform.pz)}
+              >
+                {formatAnchor(x)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {mainPurlinX.length > 0 && (
+        <>
+          <div className={styles.sectionTitle} style={{ marginTop: 10 }}>
+            Main Purlin X
+          </div>
+          <div className={styles.alignGrid}>
+            {mainPurlinX.map((x) => (
+              <button
+                key={`main-${x}`}
+                className={styles.alignBtn}
+                onClick={() => onQuickSnap(x, currentTransform.py, currentTransform.pz)}
+              >
+                {formatAnchor(x)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      {intermediatePurlinX.length > 0 && (
+        <>
+          <div className={styles.sectionTitle} style={{ marginTop: 10 }}>
+            Intermediate Purlin X
+          </div>
+          <div className={styles.alignGrid}>
+            {intermediatePurlinX.map((x) => (
+              <button
+                key={`intermediate-${x}`}
+                className={styles.alignBtn}
+                onClick={() => onQuickSnap(x, currentTransform.py, currentTransform.pz)}
+              >
+                {formatAnchor(x)}
+              </button>
+            ))}
+          </div>
+        </>
+      )}
+
+      <div className={styles.sectionTitle} style={{ marginTop: 10 }}>
+        Z Anchors
+      </div>
+      <div className={styles.frameLineList}>
+        {lineZs.map((z, i) => (
+          <button
+            key={`z-anchor-${i}`}
+            className={styles.frameLineBtn}
+            onClick={() => onQuickSnap(currentTransform.px, currentTransform.py, z)}
+          >
+            Keep X/Y, set Z to line {i}
           </button>
         ))}
       </div>

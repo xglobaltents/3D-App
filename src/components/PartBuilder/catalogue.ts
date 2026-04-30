@@ -166,6 +166,7 @@ function getSharedParts(specs: TentSpecs): GLBOption[] {
 
 function getVariantParts(specs: TentSpecs, tentType: TentType, variant: TentVariant): GLBOption[] {
   const framePath = getFramePath(tentType, variant)
+  const uprightFolder = tentType === 'PremiumArchTent' ? SHARED : framePath
   const parts: GLBOption[] = []
 
   // Upright — per-variant because profile cross-section is baked into GLB geometry
@@ -183,7 +184,9 @@ function getVariantParts(specs: TentSpecs, tentType: TentType, variant: TentVari
   parts.push({
     id: 'upright',
     label: `Upright ${variant} (${specs.profiles.upright.width * 1000}x${specs.profiles.upright.height * 1000})`,
-    folder: framePath,
+    // Premium Arch runtime currently sources mainProfile.glb from SharedFrames.
+    // Keep the builder aligned with runtime so variants without a local frame folder still load.
+    folder: uprightFolder,
     file: 'mainProfile.glb',
     defaultScale: 0.001,
     initialAxisScale: uprightScale,

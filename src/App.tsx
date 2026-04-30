@@ -280,6 +280,7 @@ function App() {
                   <PartBuilder
                     specs={specs}
                     numBays={numBays}
+                    tentKey={activeVariant.key}
                     tentType={activeVariant.tentType}
                     variant={activeVariant.variant}
                   />
@@ -307,8 +308,6 @@ function App() {
           <label htmlFor="env-select">Environment</label>
           <select id="env-select" value={environmentPreset} onChange={(e) => setEnvironmentPreset(e.target.value as EnvironmentPreset)}>
             <option value="default">Default</option>
-            <option value="white">White Studio</option>
-            <option value="black">Black Studio</option>
           </select>
           
           <hr />

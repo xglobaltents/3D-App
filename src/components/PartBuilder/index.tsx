@@ -95,11 +95,12 @@ function dynamicStep(val: number): number {
 interface Props {
   specs: TentSpecs
   numBays: number
+  tentKey: string
   tentType: TentType
   variant: TentVariant
 }
 
-export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant }) => {
+export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentKey, tentType, variant }) => {
   const scene = useScene()
 
   // ── Derived measurements (memoized) ────────────────────────────────────
@@ -121,10 +122,11 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
     () => ({
       halfWidth: specs.halfWidth,
       eaveHeight: specs.eaveHeight,
+      ridgeHeight: specs.ridgeHeight,
       baseplateTop,
       halfLength,
     }),
-    [specs.halfWidth, specs.eaveHeight, baseplateTop, halfLength]
+    [specs.halfWidth, specs.eaveHeight, specs.ridgeHeight, baseplateTop, halfLength]
   )
 
   // ── Refs ───────────────────────────────────────────────────────────────
@@ -329,19 +331,39 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
     redo(partTransformHook.readTransform(), partLoader.axisScale, restoreEntry)
   }, [redo, partTransformHook, partLoader.axisScale, restoreEntry])
 
+  const getSavedPartIndex = useCallback(
+    (config: SavedConfig): number => {
+      const byId = parts.findIndex((part) => part.id === config.partId)
+      if (byId !== -1) return byId
+
+      if (config.partIndex != null && config.partIndex >= 0 && config.partIndex < parts.length) {
+        return config.partIndex
+      }
+
+      return -1
+    },
+    [parts]
+  )
+
   // ── Storage ────────────────────────────────────────────────────────────
   const handleStorageLoad = useCallback(
     (config: SavedConfig) => {
+      const partIndex = getSavedPartIndex(config)
+      if (partIndex === -1) {
+        console.warn('PartBuilder: unable to resolve saved part for config', config)
+        return
+      }
+
       pushUndo(partTransformHook.readTransform(), partLoader.axisScale)
       // Store the config so onPartLoaded can apply it after the GLB finishes loading
       pendingConfigRef.current = config
       setRestoringConfig(config.name)
-      setSelectedPart(config.partIndex)
+      setSelectedPart(partIndex)
     },
-    [pushUndo, partTransformHook, partLoader]
+    [getSavedPartIndex, pushUndo, partTransformHook, partLoader]
   )
 
-  const storage = usePartStorage({ onLoad: handleStorageLoad })
+  const storage = usePartStorage({ onLoad: handleStorageLoad, tentKey })
 
   // ── Reference geometry ─────────────────────────────────────────────────
   const createReferenceGeometry = useCallback(
@@ -737,11 +759,10 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
   // ── Storage save handler ───────────────────────────────────────────────
   const handleSave = useCallback(() => {
     storage.save(
-      selectedPart,
+      parts[selectedPart],
       partTransformHook.readTransform(),
       partLoader.axisScale,
-      mirrors,
-      parts
+      mirrors
     )
   }, [storage, selectedPart, partTransformHook, partLoader.axisScale, mirrors, parts])
 
@@ -794,6 +815,12 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
             Redo {redoCount > 0 && redoCount}
           </button>
         </div>
+      </div>
+
+      <div className={styles.scopeBox}>
+        <div className={styles.scopeTitle}>Editing Tent</div>
+        <div className={styles.scopeValue}>{specs.name}</div>
+        <div className={styles.scopeMeta}>{tentKey} | {numBays} bays</div>
       </div>
 
       {/* Part select */}
@@ -994,6 +1021,10 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
           <SnapPanel
             lineZs={lineZs}
             specs={alignSpecs}
+            currentTransform={partTransformHook.transform}
+            gableSupportPositions={specs.gableSupportPositions}
+            mainPurlinX={specs.mainPurlinX}
+            intermediatePurlinX={specs.intermediatePurlinX}
             snapEnabled={partTransformHook.snapEnabled}
             gridSize={partTransformHook.gridSize}
             onSetSnapEnabled={partTransformHook.setSnapEnabled}
@@ -1008,6 +1039,7 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
         {tab === 'saved' && (
           <SavedPanel
             configs={storage.configs}
+            tentKey={tentKey}
             configName={storage.configName}
             onSetConfigName={storage.setConfigName}
             onSave={handleSave}
@@ -1017,7 +1049,8 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentType, variant 
             onSaveBatch={storage.saveBatch}
             lineZs={lineZs}
             currentTransform={partTransformHook.readTransform()}
-            currentPartIndex={selectedPart}
+            currentPartId={parts[selectedPart].id}
+            currentPartLabel={parts[selectedPart].label}
             currentAxisScale={partLoader.axisScale}
             currentMirrors={mirrors}
             parts={parts}

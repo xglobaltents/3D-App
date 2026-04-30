@@ -821,6 +821,19 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 			// producing the dancing shimmer on distant arches.
 			m.backFaceCulling = true
 			m.twoSidedLighting = false
+			// The arch is a procedural sweep without UV coordinates, so the
+			// shared aluminum's brushed bump + roughness textures (which
+			// sample UV1) cannot be applied — they would render as black /
+			// invisible. Strip them and rely on flat PBR shading.
+			m.bumpTexture = null
+			m.metallicTexture = null
+			m.useRoughnessFromMetallicTextureGreen = false
+			m.useMetallnessFromMetallicTextureBlue = false
+			m.useAmbientOcclusionFromMetallicTextureRed = false
+			// Slightly higher roughness to compensate for the missing
+			// micro-detail — keeps the arch from looking mirror-flat next
+			// to the now-textured baseplates / uprights.
+			m.roughness = 0.32
 		})
 		const profile = specs.profiles.rafter
 		const fallbackShape = buildLowPolyProfileShape(profile.width, profile.height)

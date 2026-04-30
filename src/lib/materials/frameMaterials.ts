@@ -25,7 +25,17 @@
  *   mesh.material = getAluminumMaterial(scene)
  */
 
-import { type Scene, PBRMaterial, Color3, Constants, CubeTexture, type Material } from '@babylonjs/core'
+import {
+  type Scene,
+  PBRMaterial,
+  Color3,
+  Constants,
+  CubeTexture,
+  DynamicTexture,
+  Texture,
+  type Material,
+  type BaseTexture,
+} from '@babylonjs/core'
 import type { EnvironmentPreset } from '@/lib/constants/sceneConfig'
 
 // ─── Per-Preset Intensity Profiles ───────────────────────────────────────────
@@ -44,18 +54,6 @@ const INTENSITY_PROFILES: Record<EnvironmentPreset, MaterialIntensityProfile> = 
     aluminum:  { directIntensity: 1.0,  environmentIntensity: 1.1, specularIntensity: 1.0 },
     steel:     { directIntensity: 1.6,  environmentIntensity: 0.3, specularIntensity: 0.7 },
     darkMetal: { directIntensity: 1.4,  environmentIntensity: 0.2, specularIntensity: 0.5 },
-  },
-  // White studio: 2 lights (hemi + dir) — medium rig, bright background
-  white: {
-    aluminum:  { directIntensity: 1.2,  environmentIntensity: 1.0, specularIntensity: 1.3 },
-    steel:     { directIntensity: 1.8,  environmentIntensity: 0.35, specularIntensity: 0.8 },
-    darkMetal: { directIntensity: 1.7,  environmentIntensity: 0.25, specularIntensity: 0.6 },
-  },
-  // Black studio: 2 lights (hemi + dir) — same rig, dark background needs boost
-  black: {
-    aluminum:  { directIntensity: 1.4,  environmentIntensity: 0.95, specularIntensity: 1.4 },
-    steel:     { directIntensity: 2.0,  environmentIntensity: 0.4,  specularIntensity: 0.9 },
-    darkMetal: { directIntensity: 1.9,  environmentIntensity: 0.3,  specularIntensity: 0.7 },
   },
 }
 
@@ -132,7 +130,166 @@ function getMetalReflection(scene: Scene): CubeTexture {
   return metalReflection
 }
 
-// ─── Aluminum (primary frame material) ───────────────────────────────────────
+// ─── Brushed-Aluminum Micro-Detail (procedural normal + roughness) ───────────
+// A high-frequency anisotropic streak texture generated once at 1024×1024.
+// This is the difference between "metallic blob" and "real brushed aluminum":
+// the per-pixel normal perturbation gives the surface true micro-detail that
+// holds up at any zoom level, and the roughness modulation breaks up the
+// otherwise uniform specular highlight (the main cause of the "low-res" look).
+//
+// Generated in-engine so there's no texture asset to load and it can't be
+// downscaled by the build pipeline.
+
+interface BrushedTextures {
+  bump: DynamicTexture
+  roughness: DynamicTexture
+}
+
+let brushedTextures: BrushedTextures | null = null
+let brushedSceneUid: string | null = null
+
+const BRUSHED_TEX_SIZE = 1024
+// World-space tiling: 1 repeat per N metres along the bay direction.
+// Tighter values = finer brush lines; we want them visible but not buzzy.
+const BRUSHED_TILING_U = 8
+const BRUSHED_TILING_V = 1
+
+function isBaseTextureDisposed(tex: BaseTexture): boolean {
+  const t = tex as unknown as Record<string, unknown>
+  if (typeof t.isDisposed === 'function') return (t.isDisposed as () => boolean)()
+  if (typeof t.isDisposed === 'boolean') return t.isDisposed
+  if (typeof t._isDisposed === 'boolean') return t._isDisposed
+  return false
+}
+
+/**
+ * Build the brushed-aluminum normal + roughness textures (once per scene).
+ *
+ * Algorithm:
+ *  1. Fill a height field with thin horizontal streaks of varying intensity
+ *     (anisotropic 1-D noise — the hallmark of a brushed/extruded finish).
+ *  2. Convert the height field to a tangent-space normal map via central
+ *     differences. RG = XY normal, B = up (Z), encoded to [0..255].
+ *  3. Map the same height field to a roughness modulation around the base
+ *     value — brushed metal alternates micro-rough lines with smoother
+ *     valleys, which creates the streaky anisotropic highlight.
+ */
+function getBrushedTextures(scene: Scene): BrushedTextures {
+  if (
+    brushedTextures &&
+    brushedSceneUid === scene.uid &&
+    !isBaseTextureDisposed(brushedTextures.bump) &&
+    !isBaseTextureDisposed(brushedTextures.roughness)
+  ) {
+    return brushedTextures
+  }
+  if (brushedTextures) {
+    try { brushedTextures.bump.dispose() } catch { /* gone */ }
+    try { brushedTextures.roughness.dispose() } catch { /* gone */ }
+  }
+
+  const size = BRUSHED_TEX_SIZE
+  // Height field: for each row, a constant intensity (so brush lines run
+  // horizontally), with two scales of 1-D value noise added together.
+  const heights = new Float32Array(size)
+  // Coarse + fine noise for natural variation
+  for (let y = 0; y < size; y++) {
+    const coarse = Math.sin(y * 0.07) * 0.35 + Math.sin(y * 0.013 + 1.7) * 0.2
+    const fine   = Math.sin(y * 0.91 + 0.5) * 0.18 + Math.sin(y * 1.73) * 0.12
+    // Sparse "deeper scratch" lines
+    const scratch = (y % 31 === 0) ? -0.4 : (y % 17 === 0 ? 0.25 : 0)
+    heights[y] = coarse + fine + scratch
+  }
+  // Add a small per-pixel jitter along U so each row isn't perfectly flat —
+  // breaks visible banding without disturbing the anisotropic look.
+  function heightAt(x: number, y: number): number {
+    const yi = ((y % size) + size) % size
+    const h = heights[yi]
+    const jitter = Math.sin(x * 6.28 + yi * 0.3) * 0.04
+    return h + jitter
+  }
+
+  // ── Normal map (RGBA8) ──
+  const bump = new DynamicTexture(
+    'brushed-aluminum-normal',
+    { width: size, height: size },
+    scene,
+    true, // generate mipmaps
+    Texture.TRILINEAR_SAMPLINGMODE,
+  )
+  bump.hasAlpha = false
+  const bumpCtx = bump.getContext() as CanvasRenderingContext2D
+  const bumpImg = bumpCtx.createImageData(size, size)
+  const strength = 4.0 // tangent-vector strength
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      // Central differences on the height field
+      const hL = heightAt(x - 1, y)
+      const hR = heightAt(x + 1, y)
+      const hU = heightAt(x, y - 1)
+      const hD = heightAt(x, y + 1)
+      const dx = (hR - hL) * strength
+      const dy = (hD - hU) * strength
+      const dz = 1.0
+      const len = Math.hypot(dx, dy, dz)
+      const nx = dx / len
+      const ny = dy / len
+      const nz = dz / len
+      const idx = (y * size + x) * 4
+      bumpImg.data[idx + 0] = Math.round((nx * 0.5 + 0.5) * 255)
+      bumpImg.data[idx + 1] = Math.round((ny * 0.5 + 0.5) * 255)
+      bumpImg.data[idx + 2] = Math.round((nz * 0.5 + 0.5) * 255)
+      bumpImg.data[idx + 3] = 255
+    }
+  }
+  bumpCtx.putImageData(bumpImg, 0, 0)
+  bump.update(false)
+  bump.wrapU = Texture.WRAP_ADDRESSMODE
+  bump.wrapV = Texture.WRAP_ADDRESSMODE
+  bump.anisotropicFilteringLevel = 16
+
+  // ── Roughness modulation (RGBA8, grayscale) ──
+  // Stored in green channel for use as metallicTexture (PBR convention:
+  // R=ambient occlusion, G=roughness, B=metallic) so it modulates roughness
+  // without disturbing albedo or metallic.
+  const rough = new DynamicTexture(
+    'brushed-aluminum-roughness',
+    { width: size, height: size },
+    scene,
+    true,
+    Texture.TRILINEAR_SAMPLINGMODE,
+  )
+  rough.hasAlpha = false
+  const roughCtx = rough.getContext() as CanvasRenderingContext2D
+  const roughImg = roughCtx.createImageData(size, size)
+  for (let y = 0; y < size; y++) {
+    for (let x = 0; x < size; x++) {
+      const h = heightAt(x, y)
+      // Map height [-1..1] to roughness multiplier [0.55..1.0] in green.
+      // useRoughnessFromMetallicTextureGreen multiplies this with the base
+      // roughness, so peaks reflect sharper, valleys are dustier — the
+      // hallmark of brushed metal.
+      const m = 0.55 + (h * 0.5 + 0.5) * 0.45
+      const v = Math.max(0, Math.min(255, Math.round(m * 255)))
+      const idx = (y * size + x) * 4
+      roughImg.data[idx + 0] = 255 // R: AO = 1 (no occlusion)
+      roughImg.data[idx + 1] = v   // G: roughness modulator
+      roughImg.data[idx + 2] = 255 // B: metallic = 1 (preserves metallic)
+      roughImg.data[idx + 3] = 255
+    }
+  }
+  roughCtx.putImageData(roughImg, 0, 0)
+  rough.update(false)
+  rough.wrapU = Texture.WRAP_ADDRESSMODE
+  rough.wrapV = Texture.WRAP_ADDRESSMODE
+  rough.anisotropicFilteringLevel = 16
+
+  brushedTextures = { bump, roughness: rough }
+  brushedSceneUid = scene.uid
+  return brushedTextures
+}
+
+
 
 /**
  * Brushed-aluminum PBR material (metallic 0.92).
@@ -151,12 +308,39 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
 
     mat.albedoColor = new Color3(0.78, 0.79, 0.81)
     mat.metallic = 0.95
-    mat.roughness = 0.38
-    // NOTE: do not also set `microSurface` — it overrides `roughness`
-    // and was previously flattening reflections (effective roughness 0.42).
+    // Tighter base roughness → sharper hotspot, samples crisper IBL mip
+    // levels (the prefiltered .env's blurry top mips were the main cause
+    // of the "low-res" look). Brushed roughness map modulates this per-pixel.
+    mat.roughness = 0.22
 
     // Fixed reflection cubemap — shared across all metals
-    mat.reflectionTexture = getMetalReflection(s)
+    const refl = getMetalReflection(s)
+    refl.anisotropicFilteringLevel = 16
+    mat.reflectionTexture = refl
+
+    // ── Brushed-aluminum micro-detail ──
+    const { bump, roughness: roughTex } = getBrushedTextures(s)
+    mat.bumpTexture = bump
+    // PBR convention: green channel = roughness, blue = metallic.
+    // useRoughnessFromMetallicTextureGreen multiplies the green channel
+    // with mat.roughness, giving streaky anisotropic-looking highlights.
+    mat.metallicTexture = roughTex
+    mat.useRoughnessFromMetallicTextureGreen = true
+    mat.useMetallnessFromMetallicTextureBlue = true
+    mat.useAmbientOcclusionFromMetallicTextureRed = true
+    // Subtle bump — brushed lines should be visible but never dominate
+    mat.bumpTexture.level = 0.35
+    // Don't invert tangent-space normal map (Babylon expects OpenGL-style)
+    mat.invertNormalMapX = false
+    mat.invertNormalMapY = false
+
+    // Tile the brushed pattern in world-ish units. We can't easily get
+    // per-mesh UV scale here, so the tiling values are tuned to look good
+    // on tube/plate frame parts at typical 0.5–4 m sizes.
+    bump.uScale = BRUSHED_TILING_U
+    bump.vScale = BRUSHED_TILING_V
+    roughTex.uScale = BRUSHED_TILING_U
+    roughTex.vScale = BRUSHED_TILING_V
 
     // Use target intensity directly — render loop is deferred until IBL ready
     mat.environmentIntensity = profile.environmentIntensity
@@ -167,7 +351,6 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
     mat.useSpecularOverAlpha = true
     // Geometric specular AA: widens the roughness lobe based on screen-space
     // normal derivatives so thin tubing doesn't shimmer/blink at distance.
-    // (Same setting used by steel and cover materials.)
     mat.enableSpecularAntiAliasing = true
     mat.backFaceCulling = true
 
@@ -232,6 +415,57 @@ export function getDarkMetalMaterial(scene: Scene): PBRMaterial {
     mat.specularIntensity = profile.specularIntensity
 
     mat.backFaceCulling = true
+    return mat
+  })
+}
+
+// ─── Matte Aluminum (no reflections, no flicker) ─────────────────────────────
+
+/**
+ * Matte-aluminum PBR material — reads as aluminum visually, but is purely
+ * diffuse: no IBL reflections, no specular highlights, therefore zero
+ * shimmer/flicker on thin geometry and rock-solid appearance at any distance
+ * or screen resolution.
+ *
+ * Use for parts where the reflective look of `getAluminumMaterial()` causes
+ * sparkle/flicker artefacts (e.g. very thin tubing, distant detail meshes,
+ * or accessory hardware).
+ *
+ * Implementation notes:
+ *  - `metallic = 0` so the surface is a dielectric — albedo drives the colour
+ *    instead of relying on environment reflection (a metal with no reflection
+ *    map renders nearly black).
+ *  - `roughness = 1.0` collapses the specular lobe — no view-dependent
+ *    highlight => no temporal aliasing on sub-pixel features.
+ *  - `reflectionTexture = null` + `environmentIntensity = 0` removes IBL
+ *    contribution entirely; the material is environment-independent by
+ *    construction so no per-preset profile is needed.
+ *  - `specularIntensity = 0` belt-and-braces against any residual highlight.
+ *  - `enableSpecularAntiAliasing = true` is harmless here and protects
+ *    against shader recompiles if roughness is later lowered.
+ */
+export function getMatteAluminumMaterial(scene: Scene): PBRMaterial {
+  return getCachedOrCreate('shared-matte-aluminum-frame', scene, (s) => {
+    const mat = new PBRMaterial('shared-matte-aluminum-frame', s)
+
+    // Aluminum-toned albedo — slightly brighter than the metallic version
+    // because there's no IBL contribution to lift the midtones.
+    mat.albedoColor = new Color3(0.82, 0.83, 0.85)
+
+    mat.metallic = 0.0
+    mat.roughness = 1.0
+
+    // No environment reflections — fully matte.
+    mat.reflectionTexture = null
+    mat.environmentIntensity = 0
+    mat.specularIntensity = 0
+    mat.directIntensity = 1.0
+
+    mat.useRadianceOverAlpha = true
+    mat.useSpecularOverAlpha = true
+    mat.enableSpecularAntiAliasing = true
+    mat.backFaceCulling = true
+
     return mat
   })
 }
@@ -323,5 +557,12 @@ export function disposeFrameMaterialCache(): void {
     try { metalReflection.dispose() } catch { /* gone */ }
     metalReflection = null
     metalReflectionSceneUid = null
+  }
+
+  if (brushedTextures) {
+    try { brushedTextures.bump.dispose() } catch { /* gone */ }
+    try { brushedTextures.roughness.dispose() } catch { /* gone */ }
+    brushedTextures = null
+    brushedSceneUid = null
   }
 }

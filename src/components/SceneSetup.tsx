@@ -23,10 +23,8 @@ import {
 // Side-effect imports: ensure engine.createDynamicTexture is available after tree-shaking
 import '@babylonjs/core/Engines/Extensions/engine.dynamicTexture'
 import '@babylonjs/core/Engines/WebGPU/Extensions/engine.dynamicTexture'
-import { GridMaterial } from '@babylonjs/materials'
 import {
   SCENE_CONFIG,
-  getStudioPresetColors,
   type EnvironmentPreset,
   type ScenePerformanceTier,
 } from '@/lib/constants/sceneConfig'
@@ -378,89 +376,6 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   }
 }
 
-// ─── Studio Environment: PBR ground + grid + IBL + 2-light rig ──────────────
-
-function setupStudioEnvironment(scene: BScene, preset: 'white' | 'black'): Disposable {
-  const { studioGround, grid, environment, studioLighting } = SCENE_CONFIG
-  const colors = getStudioPresetColors(preset)
-
-  scene.clearColor = colors.clearColor.clone()
-
-  // ── PBR ground ──
-  const groundMesh = MeshBuilder.CreateGround('ground', {
-    width: studioGround.size,
-    height: studioGround.size,
-    subdivisions: studioGround.subdivisions,
-  }, scene)
-  groundMesh.receiveShadows = false
-
-  const groundMat = new PBRMaterial('groundMat', scene)
-  groundMat.albedoColor = colors.groundAlbedo.clone()
-  groundMat.metallic = studioGround.metallic
-  groundMat.roughness = studioGround.roughness
-  groundMat.backFaceCulling = false
-  groundMat.environmentIntensity = colors.groundEnvironmentIntensity
-  groundMat.forceIrradianceInFragment = false
-  groundMesh.material = groundMat
-  groundMesh.freezeWorldMatrix()
-
-  // NOTE: No forceCompilation() — render loop deferred until IBL ready.
-
-  // ── Grid overlay ──
-  const gridMesh = MeshBuilder.CreateGround('gridGround', {
-    width: grid.size,
-    height: grid.size,
-    subdivisions: grid.subdivisions,
-  }, scene)
-  gridMesh.position.y = grid.yOffset
-
-  const gridMat = new GridMaterial('gridMat', scene)
-  gridMat.majorUnitFrequency = grid.majorUnitFrequency
-  gridMat.minorUnitVisibility = grid.minorUnitVisibility
-  gridMat.gridRatio = grid.gridRatio
-  gridMat.mainColor = colors.gridMainColor.clone()
-  gridMat.lineColor = colors.gridLineColor.clone()
-  gridMat.opacity = colors.gridOpacity
-  gridMat.backFaceCulling = false
-  gridMesh.material = gridMat
-  gridMesh.freezeWorldMatrix()
-
-  // ── Hemispheric light ──
-  const sl = studioLighting
-  const hemiLight = new HemisphericLight('hemiLight', sl.hemispheric.direction.clone(), scene)
-  hemiLight.intensity = colors.hemiIntensity
-  hemiLight.diffuse = colors.hemiDiffuse.clone()
-  hemiLight.groundColor = colors.hemiGroundColor.clone()
-  hemiLight.specular = sl.hemispheric.specular.clone()
-
-  // ── Directional light ──
-  const dirLight = new DirectionalLight('dirLight', sl.directional.direction.clone(), scene)
-  dirLight.position = sl.directional.position.clone()
-  dirLight.intensity = colors.dirIntensity
-
-  // ── IBL environment with procedural fallback ──
-  const envResult = setupEnvironmentTexture(scene, environment.iblUrl, colors.environmentIntensity)
-
-  scene.fogMode = BScene.FOGMODE_NONE
-  scene.autoClear = true
-  scene.autoClearDepthAndStencil = true
-
-  // NOTE: tone mapping / exposure / contrast are owned by
-  // setupPostProcessingPipeline (DefaultRenderingPipeline.imageProcessing).
-
-  return {
-    dispose() {
-      dirLight.dispose()
-      hemiLight.dispose()
-      gridMesh.dispose()
-      gridMat.dispose()
-      groundMesh.dispose()
-      groundMat.dispose()
-      envResult.dispose()
-    },
-  }
-}
-
 // ─── Camera View Animation ───────────────────────────────────────────────────
 
 function animateCameraToView(
@@ -545,13 +460,10 @@ function getMaxBetaAboveGround(camera: ArcRotateCamera, minCameraY = GROUND_CAME
 // ─── Component ───────────────────────────────────────────────────────────────
 
 /**
- * Scene environment with 3 modes:
- *   - default -> sky dome + terracotta ground + 4-light rig + ACES tone mapping
- *   - white   -> white studio: PBR ground + grid + IBL
- *   - black   -> black studio: same structure, dark colours
+ * Scene environment (default preset only):
+ *   - sky dome + terracotta ground + 4-light rig + ACES tone mapping
  *
  * Camera target + radius are reactive to tent dimensions.
- * Entire environment rebuilds when preset changes.
  *
  * FIX: setFrameMaterialEnvironmentProfile() is called BEFORE
  * refreshFrameMaterialCache() so intensity profiles are applied
@@ -696,12 +608,7 @@ export const SceneSetup: FC<SceneSetupProps> = ({
     // environment setup already have correct values for this preset.
     setFrameMaterialEnvironmentProfile(environmentPreset)
 
-    let env: Disposable
-    if (environmentPreset === 'default') {
-      env = setupDefaultEnvironment(scene)
-    } else {
-      env = setupStudioEnvironment(scene, environmentPreset)
-    }
+    const env = setupDefaultEnvironment(scene)
 
     // Refresh all PBR material caches with new intensity profiles
     refreshFrameMaterialCache()

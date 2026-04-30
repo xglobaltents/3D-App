@@ -1,4 +1,4 @@
-import { useCallback, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { SavedConfig, TransformValues, MirrorFlags, AxisScale } from '../types'
 import { DEFAULT_SCALE } from '../types'
 import { loadConfigs, saveConfigs } from '../utils'
@@ -9,11 +9,10 @@ export interface UsePartStorageReturn {
   configName: string
   setConfigName: (name: string) => void
   save: (
-    partIndex: number,
+    part: GLBOption,
     transform: TransformValues,
     axisScale: AxisScale,
-    mirrors: MirrorFlags,
-    parts: GLBOption[]
+    mirrors: MirrorFlags
   ) => void
   saveBatch: (newConfigs: SavedConfig[]) => void
   duplicate: (index: number, overrides: Partial<Pick<SavedConfig, 'name' | 'transform'>>) => void
@@ -23,6 +22,7 @@ export interface UsePartStorageReturn {
 
 interface UsePartStorageOptions {
   onLoad: (config: SavedConfig) => void
+  tentKey: string
 }
 
 /**
@@ -31,27 +31,33 @@ interface UsePartStorageOptions {
 export function usePartStorage(
   options: UsePartStorageOptions
 ): UsePartStorageReturn {
-  const { onLoad } = options
-  const [configs, setConfigs] = useState<SavedConfig[]>(() => loadConfigs())
+  const { onLoad, tentKey } = options
+  const [configs, setConfigs] = useState<SavedConfig[]>(() => loadConfigs(tentKey))
   const [configName, setConfigName] = useState('')
+
+  useEffect(() => {
+    setConfigs(loadConfigs(tentKey))
+    setConfigName('')
+  }, [tentKey])
 
   const save = useCallback(
     (
-      partIndex: number,
+      part: GLBOption,
       transform: TransformValues,
       axisScale: AxisScale,
-      mirrors: MirrorFlags,
-      parts: GLBOption[]
+      mirrors: MirrorFlags
     ) => {
       const name =
         configName.trim() ||
-        `${parts[partIndex]?.label ?? 'Part'} ${new Date().toLocaleTimeString()}`
+        `${part.label} ${new Date().toLocaleTimeString()}`
 
       const updated = [
         ...configs,
         {
           name,
-          partIndex,
+          tentKey,
+          partId: part.id,
+          partLabel: part.label,
           transform,
           axisScale,
           mirrors,
@@ -59,10 +65,10 @@ export function usePartStorage(
         },
       ]
       setConfigs(updated)
-      saveConfigs(updated)
+      saveConfigs(tentKey, updated)
       setConfigName('')
     },
-    [configName, configs]
+    [configName, configs, tentKey]
   )
 
   const load = useCallback(
@@ -83,19 +89,20 @@ export function usePartStorage(
     (index: number) => {
       const updated = configs.filter((_, i) => i !== index)
       setConfigs(updated)
-      saveConfigs(updated)
+      saveConfigs(tentKey, updated)
     },
-    [configs]
+    [configs, tentKey]
   )
 
   const saveBatch = useCallback(
     (newConfigs: SavedConfig[]) => {
-      const updated = [...configs, ...newConfigs]
+      const scopedConfigs = newConfigs.map((config) => ({ ...config, tentKey }))
+      const updated = [...configs, ...scopedConfigs]
       setConfigs(updated)
-      saveConfigs(updated)
+      saveConfigs(tentKey, updated)
       setConfigName('')
     },
-    [configs]
+    [configs, tentKey]
   )
 
   const duplicate = useCallback(
@@ -113,9 +120,9 @@ export function usePartStorage(
       }
       const updated = [...configs, dup]
       setConfigs(updated)
-      saveConfigs(updated)
+      saveConfigs(tentKey, updated)
     },
-    [configs]
+    [configs, tentKey]
   )
 
   return { configs, configName, setConfigName, save, saveBatch, duplicate, load, remove }

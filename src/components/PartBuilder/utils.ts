@@ -79,7 +79,11 @@ export function safeDisposeArray(arr: Disposable[]): void {
 
 /* ─── LocalStorage Helpers ────────────────────────────────────────────────── */
 
-const STORAGE_KEY = 'pb-configs'
+const STORAGE_KEY_PREFIX = 'pb-configs'
+
+function getStorageKey(tentKey: string): string {
+  return `${STORAGE_KEY_PREFIX}:${tentKey}`
+}
 
 import type { SavedConfig, TransformValues, AxisScale, MirrorFlags } from './types'
 
@@ -114,7 +118,10 @@ function isSavedConfig(v: unknown): v is SavedConfig {
   const o = v as Record<string, unknown>
   return (
     typeof o.name === 'string' &&
-    isFiniteNumber(o.partIndex) &&
+    typeof o.tentKey === 'string' &&
+    typeof o.partId === 'string' &&
+    (o.partLabel === undefined || typeof o.partLabel === 'string') &&
+    (o.partIndex === undefined || isFiniteNumber(o.partIndex)) &&
     isTransformValues(o.transform) &&
     isAxisScale(o.axisScale) &&
     isMirrorFlags(o.mirrors) &&
@@ -122,9 +129,9 @@ function isSavedConfig(v: unknown): v is SavedConfig {
   )
 }
 
-export function loadConfigs(): SavedConfig[] {
+export function loadConfigs(tentKey: string): SavedConfig[] {
   try {
-    const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || '[]')
+    const raw = JSON.parse(localStorage.getItem(getStorageKey(tentKey)) || '[]')
     if (!Array.isArray(raw)) return []
     return raw.filter(isSavedConfig)
   } catch {
@@ -132,8 +139,8 @@ export function loadConfigs(): SavedConfig[] {
   }
 }
 
-export function saveConfigs(configs: SavedConfig[]): void {
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(configs))
+export function saveConfigs(tentKey: string, configs: SavedConfig[]): void {
+  localStorage.setItem(getStorageKey(tentKey), JSON.stringify(configs))
 }
 
 /* ─── Semantic Position Analyzer ──────────────────────────────────────────── */

@@ -1,15 +1,13 @@
 /**
  * Scene Configuration - Centralized constants for 3D scene setup (Babylon.js)
  *
- * Three environment modes:
+ * Single environment mode:
  *   - default  → Sky dome + terracotta tile ground + 4-light rig + ACES tone mapping
- *   - white    → White studio: PBR ground + grid + fog + IBL + 2-light rig
- *   - black    → Black studio: same structure, dark colours
  *
  * @see docs/environment-settings.md
  */
 
-import { Color3, Color4, Vector3 } from '@babylonjs/core'
+import { Color3, Vector3 } from '@babylonjs/core'
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
@@ -25,7 +23,7 @@ function hexToColor3(hex: string): Color3 {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-export type EnvironmentPreset = 'default' | 'white' | 'black'
+export type EnvironmentPreset = 'default'
 export type ScenePerformanceTier = 'standard' | 'large-tent'
 
 export interface SkyGradientColors {
@@ -33,20 +31,6 @@ export interface SkyGradientColors {
   low: Color3
   mid: Color3
   zenith: Color3
-}
-
-export interface StudioPresetColors {
-  clearColor: Color4
-  groundAlbedo: Color3
-  groundEnvironmentIntensity: number
-  gridMainColor: Color3
-  gridLineColor: Color3
-  gridOpacity: number
-  hemiIntensity: number
-  hemiDiffuse: Color3
-  hemiGroundColor: Color3
-  dirIntensity: number
-  environmentIntensity: number
 }
 
 // ─── Scene Configuration ─────────────────────────────────────────────────────
@@ -152,92 +136,11 @@ export const SCENE_CONFIG = {
       ssao: { enabled: false, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 1.0,
               samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
     },
-    white: {
-      tone: { enabled: true, type: 1, exposure: 1.0, contrast: 1.0 },
-      sharpen: { enabled: true, edgeAmount: 0.45, colorAmount: 1.0 },
-      bloom: { enabled: false, threshold: 0.9, weight: 0.1, kernel: 64, scale: 0.5 },
-      taa:  { enabled: true, samples: 8,  factor: 0.85 },
-      ssao: { enabled: false, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 0.9,
-              samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
-    },
-    black: {
-      tone: { enabled: true, type: 1, exposure: 1.0, contrast: 1.0 },
-      sharpen: { enabled: true, edgeAmount: 0.5, colorAmount: 1.0 },
-      bloom: { enabled: true, threshold: 1.2, weight: 0.12, kernel: 64, scale: 0.5 },
-      taa:  { enabled: true, samples: 8,  factor: 0.85 },
-      ssao: { enabled: false, ssaoRatio: 0.5, blurRatio: 1.0, totalStrength: 1.0,
-              samples: 16, maxZ: 60, minZAspect: 0.5, radius: 1.0, expensiveBlur: true },
-    },
-  },
-
-  // ══════════════════════════════════════════════════════════════════════════
-  //  STUDIO PRESETS — PBR ground + grid + fog + IBL + 2-light rig
-  // ══════════════════════════════════════════════════════════════════════════
-
-  studioGround: {
-    size: 200,
-    subdivisions: 1,
-    metallic: 0.0,
-    roughness: 0.9,
-  },
-
-  grid: {
-    size: 200,
-    subdivisions: 1,
-    yOffset: 0.001,
-    majorUnitFrequency: 10,
-    minorUnitVisibility: 0.3,
-    gridRatio: 1,
   },
 
   environment: {
     iblUrl: '/environments/outdoor.env',
   },
-
-  studioLighting: {
-    hemispheric: {
-      direction: new Vector3(0, 1, 0),
-      specular: new Color3(0.3, 0.3, 0.3),  // boosted from 0.1
-    },
-    directional: {
-      direction: new Vector3(-1, -2, -1).normalize(),
-      position: new Vector3(50, 100, 50),
-    },
-  },
-
-  studioShadow: {
-    blurKernel: 16,
-    darkness: 0.3,
-  },
-
-  studioPresets: {
-    white: {
-      clearColor: new Color4(0.95, 0.95, 0.95, 1.0),
-      groundAlbedo: new Color3(0.85, 0.85, 0.85),
-      groundEnvironmentIntensity: 0.4,
-      gridMainColor: new Color3(0.85, 0.85, 0.85),
-      gridLineColor: new Color3(0.7, 0.7, 0.7),
-      gridOpacity: 0.6,
-      hemiIntensity: 0.8,       // was 0.6
-      hemiDiffuse: new Color3(1, 1, 1),
-      hemiGroundColor: new Color3(0.4, 0.4, 0.4),
-      dirIntensity: 1.2,        // was 0.8
-      environmentIntensity: 0.5,
-    },
-    black: {
-      clearColor: new Color4(0.06, 0.06, 0.08, 1.0),
-      groundAlbedo: new Color3(0.10, 0.10, 0.12),
-      groundEnvironmentIntensity: 0.15,
-      gridMainColor: new Color3(0.10, 0.10, 0.12),
-      gridLineColor: new Color3(0.20, 0.20, 0.22),
-      gridOpacity: 0.35,
-      hemiIntensity: 0.35,      // was 0.2
-      hemiDiffuse: new Color3(0.5, 0.5, 0.6),
-      hemiGroundColor: new Color3(0.08, 0.08, 0.10),
-      dirIntensity: 0.7,        // was 0.4
-      environmentIntensity: 0.2,
-    },
-  } as Record<'white' | 'black', StudioPresetColors>,
 
   // ══════════════════════════════════════════════════════════════════════════
   //  SHARED — Camera, shadow map size, exports
@@ -305,10 +208,6 @@ export function getCameraConfig() {
 
 export function getShadowMapSize(): number {
   return isMobile() ? SCENE_CONFIG.shadowMapSize.mobile : SCENE_CONFIG.shadowMapSize.desktop
-}
-
-export function getStudioPresetColors(preset: 'white' | 'black'): StudioPresetColors {
-  return SCENE_CONFIG.studioPresets[preset]
 }
 
 /**

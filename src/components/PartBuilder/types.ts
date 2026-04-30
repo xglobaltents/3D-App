@@ -78,7 +78,11 @@ export interface UndoEntry {
 
 export interface SavedConfig {
   name: string
-  partIndex: number
+  tentKey: string
+  partId: string
+  partLabel?: string
+  /** @deprecated kept for backward compat with old saves */
+  partIndex?: number
   transform: TransformValues
   /** @deprecated kept for backward compat with old saves */
   uniformScale?: number

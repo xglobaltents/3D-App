@@ -5,6 +5,7 @@ import styles from '../PartBuilder.module.css'
 
 interface SavedPanelProps {
   configs: SavedConfig[]
+  tentKey: string
   configName: string
   onSetConfigName: (name: string) => void
   onSave: () => void
@@ -14,7 +15,8 @@ interface SavedPanelProps {
   onSaveBatch: (configs: SavedConfig[]) => void
   lineZs: number[]
   currentTransform: TransformValues
-  currentPartIndex: number
+  currentPartId: string
+  currentPartLabel: string
   currentAxisScale: AxisScale
   currentMirrors: MirrorFlags
   parts: GLBOption[]
@@ -22,6 +24,7 @@ interface SavedPanelProps {
 
 export const SavedPanel: FC<SavedPanelProps> = ({
   configs,
+  tentKey,
   configName,
   onSetConfigName,
   onSave,
@@ -31,16 +34,30 @@ export const SavedPanel: FC<SavedPanelProps> = ({
   onSaveBatch,
   lineZs,
   currentTransform,
-  currentPartIndex,
+  currentPartId,
+  currentPartLabel,
   currentAxisScale,
   currentMirrors,
   parts,
 }) => {
   const [confirmDelete, setConfirmDelete] = useState<number | null>(null)
 
+  const resolvePartLabel = (config: SavedConfig): string => {
+    const byId = parts.find((part) => part.id === config.partId)
+    if (byId) return byId.label
+    if (config.partLabel) return config.partLabel
+    if (config.partIndex != null && config.partIndex >= 0 && config.partIndex < parts.length) {
+      return parts[config.partIndex].label
+    }
+    return 'Unknown'
+  }
+
   return (
     <div className={styles.section}>
       <div className={styles.sectionTitle}>Save Current</div>
+      <div className={styles.profileHint} style={{ marginBottom: 8 }}>
+        Saved configs are scoped to {tentKey}
+      </div>
       <div className={styles.row}>
         <input
           type="text"
@@ -64,10 +81,12 @@ export const SavedPanel: FC<SavedPanelProps> = ({
           className={styles.alignBtn}
           style={{ flex: 1 }}
           onClick={() => {
-            const label = parts[currentPartIndex]?.label ?? 'Part'
+            const label = currentPartLabel || 'Part'
             const batch: SavedConfig[] = lineZs.map((z, i) => ({
               name: `${configName.trim() || label} L${i}`,
-              partIndex: currentPartIndex,
+              tentKey,
+              partId: currentPartId,
+              partLabel: currentPartLabel,
               transform: { ...currentTransform, pz: z },
               axisScale: { ...currentAxisScale },
               mirrors: { ...currentMirrors },
@@ -97,7 +116,7 @@ export const SavedPanel: FC<SavedPanelProps> = ({
                 <div key={i} className={styles.configItem}>
                   <div className={styles.configName}>{c.name}</div>
                   <div className={styles.configMeta}>
-                    {parts[c.partIndex]?.label ?? 'Unknown'} |{' '}
+                    {resolvePartLabel(c)} |{' '}
                     {mirrorLabels.length > 0 ? mirrorLabels.join(' ') : 'Single'}
                   </div>
                   <div className={styles.configActions}>

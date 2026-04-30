@@ -124,6 +124,7 @@ export const MovePanel: FC<MovePanelProps> = ({
         {[
           { label: 'Eave Height', key: 'eave' },
           { label: 'Ground', key: 'ground' },
+          { label: 'Ridge Height', key: 'ridge' },
         ].map((a) => (
           <button
             key={a.key}

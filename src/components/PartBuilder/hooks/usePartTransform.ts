@@ -40,6 +40,7 @@ export interface UsePartTransformReturn {
 export interface AlignSpecs {
   halfWidth: number
   eaveHeight: number
+  ridgeHeight: number
   baseplateTop: number
   halfLength: number
 }
@@ -160,6 +161,9 @@ export function usePartTransform(
           break
         case 'eave':
           n.position.y = specs.baseplateTop + specs.eaveHeight
+          break
+        case 'ridge':
+          n.position.y = specs.baseplateTop + specs.ridgeHeight
           break
         case 'right':
           n.position.x = -specs.halfWidth
