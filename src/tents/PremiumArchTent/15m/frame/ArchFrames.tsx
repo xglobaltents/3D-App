@@ -815,25 +815,12 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 		const archMat = getAluminumClone(scene, 'aluminum-arch', (m) => {
 			// Tube is closed by end caps and inner-wall winding is opposite to
 			// the outer wall, so backface culling correctly hides the inside.
-			// Leaving culling OFF caused the inner walls to render with
-			// normals pointing into the solid metal — their specular response
-			// competed with the outer walls in the same screen pixels,
-			// producing the dancing shimmer on distant arches.
 			m.backFaceCulling = true
 			m.twoSidedLighting = false
-			// The arch is a procedural sweep without UV coordinates, so the
-			// shared aluminum's brushed bump + roughness textures (which
-			// sample UV1) cannot be applied — they would render as black /
-			// invisible. Strip them and rely on flat PBR shading.
-			m.bumpTexture = null
-			m.metallicTexture = null
-			m.useRoughnessFromMetallicTextureGreen = false
-			m.useMetallnessFromMetallicTextureBlue = false
-			m.useAmbientOcclusionFromMetallicTextureRed = false
-			// Slightly higher roughness to compensate for the missing
-			// micro-detail — keeps the arch from looking mirror-flat next
-			// to the now-textured baseplates / uprights.
-			m.roughness = 0.32
+			// Inherit albedo + roughness from the base material so the arch
+			// matches every other aluminum component exactly. Do NOT override
+			// roughness here — that's what previously made the arch look
+			// brighter/glossier than the uprights.
 		})
 		const profile = specs.profiles.rafter
 		const fallbackShape = buildLowPolyProfileShape(profile.width, profile.height)
