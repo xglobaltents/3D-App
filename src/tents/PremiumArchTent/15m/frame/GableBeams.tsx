@@ -2,7 +2,7 @@ import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3, Quaternion, Matrix } from '@babylonjs/core'
 import { loadGLB, stripAndApplyMaterial, freezeThinInstancedMesh } from '@/lib/utils/GLBLoader'
-import { getAluminumClone } from '@/lib/materials/frameMaterials'
+import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import { GABLE_BEAM_REG, computePartScale } from '@/lib/constants/glbRegistry'
 import type { TentSpecs } from '@/types'
 
@@ -46,21 +46,9 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
     const root = new TransformNode('gable-beams-root', scene)
     const allDisposables: (Mesh | TransformNode)[] = [root]
 
-    // Cached clone with backFaceCulling disabled — per Rule 11 & 13.
-    // The GLB's internal mesh rotations combined with handedness rotation
-    // and extreme non-uniform scaling flip winding order on some triangles,
-    // causing face flickering when culling is enabled. Disabling culling
-    // is the only reliable fix; the singleton path produces visible flicker.
-    //
-    // `twoSidedLighting = true` makes back-facing triangles flip their
-    // normals at shading time so both sides shade identically — without
-    // this, back faces lit by direct lights from the wrong side appear
-    // darker than the uprights (which keep culling on and render only
-    // front faces).
-    const aluminumMat = getAluminumClone(scene, 'aluminum-gable-beams', (m) => {
-      m.backFaceCulling = false
-      m.twoSidedLighting = true
-    })
+    // Shared singleton aluminum material — same as every other frame part
+    // so the whole frame reads as one consistent colour.
+    const aluminumMat = getAluminumMaterial(scene)
 
     onLoadStateChange?.(true)
 
@@ -172,7 +160,7 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
           // Ignore cleanup failures during unmount.
         }
       }
-      // Material is cached via getAluminumClone — do NOT dispose here
+      // Material is the shared singleton — do NOT dispose here
     }
   }, [scene, enabled, specs, numBays, onLoadStateChange])
 

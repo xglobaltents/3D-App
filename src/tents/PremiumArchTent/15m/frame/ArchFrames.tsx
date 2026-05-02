@@ -3,7 +3,7 @@ import { TransformNode, Vector2, Vector3, Mesh, VertexBuffer, VertexData, type S
 import { useScene } from '@/engine/BabylonProvider'
 import { loadGLB, createFrozenThinInstances, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { getFrameRafterSlopeAtEave, makeFrameCenterlineHeightFn } from '@/lib/utils/archMath'
-import { getAluminumClone } from '@/lib/materials/frameMaterials'
+import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import { getSharedFramePath } from '@/lib/constants/assetPaths'
 import type { TentSpecs } from '@/types'
 import earcut from 'earcut'
@@ -812,16 +812,7 @@ export const ArchFrames: FC<ArchFramesProps> = memo(({
 		const root = new TransformNode('arch-frames-root', scene)
 		const allDisposables: (TransformNode | Mesh)[] = [root]
 
-		const archMat = getAluminumClone(scene, 'aluminum-arch', (m) => {
-			// Tube is closed by end caps and inner-wall winding is opposite to
-			// the outer wall, so backface culling correctly hides the inside.
-			m.backFaceCulling = true
-			m.twoSidedLighting = false
-			// Inherit albedo + roughness from the base material so the arch
-			// matches every other aluminum component exactly. Do NOT override
-			// roughness here — that's what previously made the arch look
-			// brighter/glossier than the uprights.
-		})
+		const archMat = getAluminumMaterial(scene)
 		const profile = specs.profiles.rafter
 		const fallbackShape = buildLowPolyProfileShape(profile.width, profile.height)
 		const profileCacheKey = `${SHARED_FRAME_PATH}mainProfile.glb:${profile.width}:${profile.height}:${ARCH_PROFILE_CACHE_VERSION}`
