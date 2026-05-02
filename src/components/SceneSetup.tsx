@@ -280,7 +280,6 @@ function setupDefaultEnvironment(scene: BScene): Disposable {
   groundTex.anisotropicFilteringLevel = 16
   groundTex.wrapU = Texture.WRAP_ADDRESSMODE
   groundTex.wrapV = Texture.WRAP_ADDRESSMODE
-  groundTex.anisotropicFilteringLevel = 16
   groundTex.uScale = defaultGround.tileRepeat / tilesPerSide
   groundTex.vScale = defaultGround.tileRepeat / tilesPerSide
 

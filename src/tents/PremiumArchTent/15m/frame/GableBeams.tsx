@@ -51,11 +51,15 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
     // and extreme non-uniform scaling flip winding order on some triangles,
     // causing face flickering when culling is enabled. Disabling culling
     // is the only reliable fix; the singleton path produces visible flicker.
+    //
+    // `twoSidedLighting = true` makes back-facing triangles flip their
+    // normals at shading time so both sides shade identically — without
+    // this, back faces lit by direct lights from the wrong side appear
+    // darker than the uprights (which keep culling on and render only
+    // front faces).
     const aluminumMat = getAluminumClone(scene, 'aluminum-gable-beams', (m) => {
-      // GLB winding is unreliable due to handedness + non-uniform scaling;
-      // disable culling so back faces render too. This is the only reason
-      // for the clone — every other property must inherit from the base.
       m.backFaceCulling = false
+      m.twoSidedLighting = true
     })
 
     onLoadStateChange?.(true)
@@ -133,12 +137,14 @@ export const GableBeams: FC<GableBeamsProps> = memo(({
         ]
 
         // ── Thin instances ──
+        const scratch = new Matrix()
         for (const src of geoMeshes) {
           const meshLocal = meshLocals.get(src) ?? Matrix.Identity()
           const prefix = meshLocal.multiply(modelMatrix)
           const buf = new Float32Array(partMatrices.length * 16)
           for (let j = 0; j < partMatrices.length; j++) {
-            prefix.multiply(partMatrices[j]).copyToArray(buf, j * 16)
+            prefix.multiplyToRef(partMatrices[j], scratch)
+            scratch.copyToArray(buf, j * 16)
           }
           src.parent = root
           src.position.setAll(0)

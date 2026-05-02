@@ -130,12 +130,14 @@ export const EaveSideBeams: FC<EaveSideBeamsProps> = memo(({
         }
 
         // ── Thin instances ──
+        const scratch = new Matrix()
         for (const src of geoMeshes) {
           const meshLocal = meshLocals.get(src) ?? Matrix.Identity()
           const prefix = meshLocal.multiply(modelMatrix)
           const buf = new Float32Array(partMatrices.length * 16)
           for (let j = 0; j < partMatrices.length; j++) {
-            prefix.multiply(partMatrices[j]).copyToArray(buf, j * 16)
+            prefix.multiplyToRef(partMatrices[j], scratch)
+            scratch.copyToArray(buf, j * 16)
           }
           src.parent = root
           src.position.setAll(0)

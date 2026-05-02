@@ -21,8 +21,9 @@ import type { TentSpecs } from '@/types'
 // ═════════════════════════════════════════════════════════════
 
 // Cross-section is now derived dynamically from the GLB's measured bounds
-// (see widthCorrection / heightCorrection below). Z extrusion stays calibrated.
-const Z_SCALE_PER_METER = 0.1641 / 3.2 // calibrated at eaveHeight = 3.2m
+// (see widthCorrection / heightCorrection below). Z extrusion is also
+// derived analytically from a single probe, so no calibration constant
+// is needed.
 
 const FOLDER = '/tents/SharedFrames/'
 const FILE = 'gable-support-77x127.glb'
@@ -127,11 +128,17 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
 
         // Measure the GLB's natural cross-section at unit scale so we can
         // normalize against true bounds rather than a calibration constant.
+        // Probe at unit scale so we can derive every dimension analytically.
+        // World-space dimensions are linear in modelScale, so a single probe
+        // is enough to compute cross-section AND height-axis (Y) scaling for
+        // every instance — no per-instance measureWorldBounds() needed.
         const probeMatrix = Matrix.Compose(Vector3.One(), MODEL_ROT_QUAT, Vector3.Zero())
         const probePart = Matrix.Compose(Vector3.One(), PART_ROT_QUAT, Vector3.Zero())
         const probeBounds = measureInstanceBounds(probeMatrix, probePart)
         const naturalCrossX = Math.max(probeBounds.max.x - probeBounds.min.x, 1e-6)
         const naturalCrossY = Math.max(probeBounds.max.z - probeBounds.min.z, 1e-6)
+        const naturalHeight = Math.max(probeBounds.max.y - probeBounds.min.y, 1e-6)
+        const naturalMinY = probeBounds.min.y
         const crossScaleX = targetW / naturalCrossX
         const crossScaleY = targetH / naturalCrossY
 
@@ -159,23 +166,18 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
             const supportHeight = topY - baseplateTop
             if (supportHeight <= 1e-4) continue
 
-            let scaleZ = Z_SCALE_PER_METER * supportHeight
-            let modelMatrix = makeModelMatrix(scaleZ)
-            let partY = baseplateTop
-            let partMatrix = makePartMatrix(gx, partY, gz)
-            let bounds = measureInstanceBounds(modelMatrix, partMatrix)
-
-            const actualHeight = bounds.max.y - bounds.min.y
-            if (actualHeight > 1e-6) {
-              scaleZ *= supportHeight / actualHeight
-              modelMatrix = makeModelMatrix(scaleZ)
-              bounds = measureInstanceBounds(modelMatrix, partMatrix)
-            }
-
-            partY += baseplateTop - bounds.min.y
-            partMatrix = makePartMatrix(gx, partY, gz)
-
-            instances.push({ modelMatrix, partMatrix })
+            // Closed-form: world-Y extent = scaleZ * naturalHeight, so
+            //   scaleZ = supportHeight / naturalHeight  (matches old iterative result)
+            // and the bottom of the bounds in world Y after part placement is
+            //   bounds.min.y = partY + scaleZ * naturalMinY
+            // We want bounds.min.y = baseplateTop, so:
+            //   partY = baseplateTop - scaleZ * naturalMinY
+            const scaleZ = supportHeight / naturalHeight
+            const partY = baseplateTop - scaleZ * naturalMinY
+            instances.push({
+              modelMatrix: makeModelMatrix(scaleZ),
+              partMatrix: makePartMatrix(gx, partY, gz),
+            })
           }
         }
 
@@ -189,12 +191,16 @@ export const GableSupports: FC<GableSupportsProps> = memo(({
         }
 
         // ── Thin instances ──
+        const scratchA = new Matrix()
+        const scratchB = new Matrix()
         for (const src of geoMeshes) {
           const meshLocal = meshLocals.get(src) ?? Matrix.Identity()
           const buf = new Float32Array(instances.length * 16)
           for (let j = 0; j < instances.length; j++) {
             const { modelMatrix, partMatrix } = instances[j]
-            meshLocal.multiply(modelMatrix).multiply(partMatrix).copyToArray(buf, j * 16)
+            meshLocal.multiplyToRef(modelMatrix, scratchA)
+            scratchA.multiplyToRef(partMatrix, scratchB)
+            scratchB.copyToArray(buf, j * 16)
           }
           src.parent = root
           src.position.setAll(0)

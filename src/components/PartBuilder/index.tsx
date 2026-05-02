@@ -132,6 +132,11 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentKey, tentType,
   // ── Refs ───────────────────────────────────────────────────────────────
   const rootRef = useRef<TransformNode | null>(null)
   const refGeoRef = useRef<Mesh[]>([])
+  // Track the StandardMaterials used by reference geometry so they can be
+  // disposed alongside the meshes — `safeDisposeArray` only frees nodes,
+  // not their shared materials, which would otherwise leak on every
+  // builder remount or specs/numBays change.
+  const refMatsRef = useRef<StandardMaterial[]>([])
 
   // ── UI state ───────────────────────────────────────────────────────────
   const [selectedPart, setSelectedPart] = useState(0)
@@ -366,19 +371,27 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentKey, tentType,
   const storage = usePartStorage({ onLoad: handleStorageLoad, tentKey })
 
   // ── Reference geometry ─────────────────────────────────────────────────
+  const disposeReferenceGeometry = useCallback(() => {
+    safeDisposeArray(refGeoRef.current as unknown as (Mesh | null)[])
+    refGeoRef.current = []
+    for (const m of refMatsRef.current) safeDispose(m)
+    refMatsRef.current = []
+  }, [])
+
   const createReferenceGeometry = useCallback(
     (sc: NonNullable<typeof scene>) => {
-      safeDisposeArray(refGeoRef.current as unknown as (Mesh | null)[])
-      refGeoRef.current = []
+      disposeReferenceGeometry()
 
       const refMat = new StandardMaterial('ref-mat', sc)
       refMat.wireframe = true
       refMat.diffuseColor = new Color3(0.3, 0.5, 0.8)
       refMat.alpha = 0.6
+      refMatsRef.current.push(refMat)
 
       const hotspotMat = new StandardMaterial('hotspot-mat', sc)
       hotspotMat.diffuseColor = new Color3(0.9, 0.6, 0.1)
       hotspotMat.alpha = 0.4
+      refMatsRef.current.push(hotspotMat)
 
       const uprightHeight = specs.eaveHeight
 
@@ -463,27 +476,39 @@ export const PartBuilder: FC<Props> = memo(({ specs, numBays, tentKey, tentType,
       centerX.isPickable = false
       refGeoRef.current.push(centerX as unknown as Mesh)
     },
-    [specs, baseplateTop, lineZs, halfLength]
+    [specs, baseplateTop, lineZs, halfLength, disposeReferenceGeometry]
   )
 
   // ── Scene setup effect ─────────────────────────────────────────────────
+  // Owns the long-lived `builder-root` TransformNode + cross-cutting cleanup
+  // (mirrors, loaded part). Reference geometry has its own effect below so
+  // it can rebuild when specs/numBays change without tearing down the part.
   useEffect(() => {
     if (!scene) return
 
     const root = new TransformNode('builder-root', scene)
     rootRef.current = root
 
-    createReferenceGeometry(scene)
-
     return () => {
-      safeDisposeArray(refGeoRef.current as unknown as (Mesh | null)[])
-      refGeoRef.current = []
+      disposeReferenceGeometry()
       mirrorSystem.disposeMirrors()
       partLoader.disposePart()
       safeDispose(root)
+      rootRef.current = null
     }
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [scene])
+
+  // Rebuild reference geometry when the active tent dimensions change.
+  // Without this, switching tent type / width / variant / bay count while
+  // builder mode is open leaves stale guides pointing at the previous tent.
+  useEffect(() => {
+    if (!scene) return
+    createReferenceGeometry(scene)
+    return () => {
+      disposeReferenceGeometry()
+    }
+  }, [scene, createReferenceGeometry, disposeReferenceGeometry])
 
   // Load part on mount and when selection changes (single source of truth)
   useEffect(() => {

@@ -168,8 +168,6 @@ export function getAluminumMaterial(scene: Scene): PBRMaterial {
     mat.useAmbientOcclusionFromMetallicTextureRed = false
 
     mat.directIntensity = profile.directIntensity
-    mat.useRadianceOverAlpha = true
-    mat.useSpecularOverAlpha = true
     mat.enableSpecularAntiAliasing = true
     mat.backFaceCulling = true
 

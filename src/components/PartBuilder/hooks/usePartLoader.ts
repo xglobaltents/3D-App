@@ -281,7 +281,12 @@ export function usePartLoader(
       } catch (err) {
         console.error('Failed to load GLB part:', err)
       } finally {
-        setLoading(false)
+        // Only the most recent load owns the spinner. Stale loads must
+        // leave `loading` alone so the spinner keeps reflecting the
+        // in-flight latest part.
+        if (gen === loadGenRef.current) {
+          setLoading(false)
+        }
       }
     },
     [rootRef, onLoaded, onBeforeLoad, disposePart]

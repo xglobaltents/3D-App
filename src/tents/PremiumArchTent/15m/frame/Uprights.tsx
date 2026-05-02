@@ -1,7 +1,7 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { Mesh, TransformNode, Vector3, VertexBuffer } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { getFrameRafterSlopeAtEave, makeFrameBottomHeightFn } from '@/lib/utils/archMath'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import { getSharedFramePath } from '@/lib/constants/assetPaths'
@@ -120,8 +120,7 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 		const controller = new AbortController()
 		abortRef.current = controller
 
-		// Clear stale bounds from previous loads
-		clearBoundsCache()
+		// NOTE: bounds cache is cleared by the parent frame on specs change.
 
 		const root = new TransformNode('uprights-root', scene)
 		const allDisposables: (Mesh | TransformNode)[] = [root]
@@ -267,6 +266,10 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 					// Separate transforms for left/right (asymmetric miter)
 					const rightTransforms: InstanceTransform[] = []
 					const leftTransforms: InstanceTransform[] = []
+					// Hoist rotation/scaling refs out of the loop — InstanceTransform
+					// only reads them, sharing avoids O(N) Vector3 allocations.
+					const sharedRotation = template.rotation.clone()
+					const sharedScaling = template.scaling.clone()
 
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
@@ -276,8 +279,8 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 								groundY,
 								z - centerOffsetZ,
 							),
-							rotation: template.rotation.clone(),
-							scaling: template.scaling.clone(),
+							rotation: sharedRotation,
+							scaling: sharedScaling,
 						})
 						leftTransforms.push({
 							position: new Vector3(
@@ -285,8 +288,8 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 								groundY,
 								z - centerOffsetZ,
 							),
-							rotation: template.rotation.clone(),
-							scaling: template.scaling.clone(),
+							rotation: sharedRotation,
+							scaling: sharedScaling,
 						})
 					}
 
@@ -316,6 +319,8 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 				} else {
 					// No miter — original symmetric behaviour
 					const transforms: InstanceTransform[] = []
+					const sharedRotation = template.rotation.clone()
+					const sharedScaling = template.scaling.clone()
 					for (let i = 0; i < numLines; i++) {
 						const z = i * specs.bayDistance - halfLength
 						for (const side of [-1, 1] as const) {
@@ -325,8 +330,8 @@ export const Uprights: FC<UprightsProps> = memo(({ numBays, specs, enabled = tru
 									groundY,
 									z - centerOffsetZ,
 								),
-								rotation: template.rotation.clone(),
-								scaling: template.scaling.clone(),
+								rotation: sharedRotation,
+								scaling: sharedScaling,
 							})
 						}
 					}

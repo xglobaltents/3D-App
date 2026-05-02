@@ -14,8 +14,7 @@ A 3D tent configurator built with React, Babylon.js, and TypeScript.
 ## Tech Stack
 
 - **React 19** - UI framework
-- **Babylon.js 8** - 3D rendering engine
-- **react-babylonjs** - React bindings for Babylon.js
+- **Babylon.js 9** - 3D rendering engine (used directly via a custom `BabylonProvider`)
 - **TypeScript** - Type safety
 - **Vite** - Build tool
 
@@ -55,26 +54,3 @@ See [docs/](docs/) for detailed documentation:
 ## License
 
 Proprietary - Bait Al Nokhada
-import reactDom from 'eslint-plugin-react-dom'
-
-export default defineConfig([
-  globalIgnores(['dist']),
-  {
-    files: ['**/*.{ts,tsx}'],
-    extends: [
-      // Other configs...
-      // Enable lint rules for React
-      reactX.configs['recommended-typescript'],
-      // Enable lint rules for React DOM
-      reactDom.configs.recommended,
-    ],
-    languageOptions: {
-      parserOptions: {
-        project: ['./tsconfig.node.json', './tsconfig.app.json'],
-        tsconfigRootDir: import.meta.dirname,
-      },
-      // other options...
-    },
-  },
-])
-```

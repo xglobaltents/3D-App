@@ -6,8 +6,9 @@
  * composes all frame parts and forwards the specs/numBays/callbacks.
  */
 
-import { type FC, memo } from 'react'
+import { type FC, memo, useEffect } from 'react'
 import type { TentSpecs } from '@/types'
+import { clearBoundsCache } from '@/lib/utils/GLBLoader'
 import { Baseplates } from '@/tents/SharedFrames/Baseplates'
 import { Uprights } from '@/tents/PremiumArchTent/15m/frame/Uprights'
 import { ArchFrames } from '@/tents/PremiumArchTent/15m/frame/ArchFrames'
@@ -27,7 +28,14 @@ export const PremiumArchFrame: FC<PremiumArchFrameProps> = memo(({
 	specs,
 	builderMode = false,
 	onLoadStateChange,
-}) => (
+}) => {
+	// Clear shared bounds cache once when specs change (was previously called by
+	// every frame component, defeating the cache when components mounted in parallel).
+	useEffect(() => {
+		clearBoundsCache()
+	}, [specs])
+
+	return (
 	<>
 		<Baseplates
 			numBays={numBays}
@@ -66,6 +74,7 @@ export const PremiumArchFrame: FC<PremiumArchFrameProps> = memo(({
 			onLoadStateChange={onLoadStateChange}
 		/>
 	</>
-))
+	)
+})
 
 PremiumArchFrame.displayName = 'PremiumArchFrame'

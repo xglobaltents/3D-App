@@ -28,6 +28,8 @@ import { WebGPUEngine } from '@babylonjs/core/Engines/webgpuEngine'
 import { Scene } from '@babylonjs/core/scene'
 import { Color4 } from '@babylonjs/core/Maths/math.color'
 import { clearGLBCache } from '@/lib/utils/GLBLoader'
+import { disposeFrameMaterialCache } from '@/lib/materials/frameMaterials'
+import { disposeCoverMaterialCache } from '@/lib/materials/coverMaterials'
 import '@babylonjs/loaders/glTF'
 
 // ─── Module-level engine type cache ──────────────────────────────────────────
@@ -273,6 +275,13 @@ export const BabylonProvider: FC<BabylonProviderProps> = ({
       // Engine + scene cleanup
       if (engine) engine.stopRenderLoop()
       if (scene) clearGLBCache(scene)
+      // Module-level material caches must be torn down BEFORE scene.dispose()
+      // so the cached PBR materials + the fixed metal-reflection cubemap
+      // release their GPU resources cleanly. Without this, repeated
+      // provider remounts (e.g. StrictMode, tab swap, future scene swap)
+      // leak materials/textures.
+      disposeFrameMaterialCache()
+      disposeCoverMaterialCache()
       scene?.dispose()
       engine?.dispose()
 

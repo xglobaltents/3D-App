@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useMemo, useState } from 'react'
 import type { SavedConfig, TransformValues, MirrorFlags, AxisScale } from '../types'
 import { DEFAULT_SCALE } from '../types'
 import { loadConfigs, saveConfigs } from '../utils'
@@ -27,18 +27,35 @@ interface UsePartStorageOptions {
 
 /**
  * Manages saving / loading / deleting named configurations from localStorage.
+ *
+ * Configs are derived synchronously during render from `tentKey` + an internal
+ * version counter. Writes bump the version so dependent renders see the new
+ * list without a setState-in-effect cascade (which React 19 flags as a perf
+ * anti-pattern, see react-hooks/set-state-in-effect).
  */
 export function usePartStorage(
   options: UsePartStorageOptions
 ): UsePartStorageReturn {
   const { onLoad, tentKey } = options
-  const [configs, setConfigs] = useState<SavedConfig[]>(() => loadConfigs(tentKey))
+  const [version, setVersion] = useState(0)
   const [configName, setConfigName] = useState('')
 
-  useEffect(() => {
-    setConfigs(loadConfigs(tentKey))
-    setConfigName('')
-  }, [tentKey])
+  // Derived from (tentKey, version): no effect, no render cascade.
+  // `version` is intentionally a dependency so writes invalidate the memo
+  // even though `loadConfigs` does not read it directly.
+  const configs = useMemo(
+    () => loadConfigs(tentKey),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [tentKey, version]
+  )
+
+  const persist = useCallback(
+    (next: SavedConfig[]) => {
+      saveConfigs(tentKey, next)
+      setVersion((v) => v + 1)
+    },
+    [tentKey]
+  )
 
   const save = useCallback(
     (
@@ -64,11 +81,10 @@ export function usePartStorage(
           timestamp: Date.now(),
         },
       ]
-      setConfigs(updated)
-      saveConfigs(tentKey, updated)
+      persist(updated)
       setConfigName('')
     },
-    [configName, configs, tentKey]
+    [configName, configs, tentKey, persist]
   )
 
   const load = useCallback(
@@ -88,21 +104,19 @@ export function usePartStorage(
   const remove = useCallback(
     (index: number) => {
       const updated = configs.filter((_, i) => i !== index)
-      setConfigs(updated)
-      saveConfigs(tentKey, updated)
+      persist(updated)
     },
-    [configs, tentKey]
+    [configs, persist]
   )
 
   const saveBatch = useCallback(
     (newConfigs: SavedConfig[]) => {
       const scopedConfigs = newConfigs.map((config) => ({ ...config, tentKey }))
       const updated = [...configs, ...scopedConfigs]
-      setConfigs(updated)
-      saveConfigs(tentKey, updated)
+      persist(updated)
       setConfigName('')
     },
-    [configs, tentKey]
+    [configs, tentKey, persist]
   )
 
   const duplicate = useCallback(
@@ -119,10 +133,9 @@ export function usePartStorage(
         timestamp: Date.now(),
       }
       const updated = [...configs, dup]
-      setConfigs(updated)
-      saveConfigs(tentKey, updated)
+      persist(updated)
     },
-    [configs, tentKey]
+    [configs, persist]
   )
 
   return { configs, configName, setConfigName, save, saveBatch, duplicate, load, remove }

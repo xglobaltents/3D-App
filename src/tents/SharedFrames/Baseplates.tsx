@@ -1,7 +1,7 @@
 import { type FC, useEffect, memo, useRef } from 'react'
 import { useScene } from '@/engine/BabylonProvider'
 import { TransformNode, Mesh, Vector3 } from '@babylonjs/core'
-import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, clearBoundsCache, type InstanceTransform } from '@/lib/utils/GLBLoader'
+import { loadGLB, stripAndApplyMaterial, createFrozenThinInstances, measureWorldBounds, type InstanceTransform } from '@/lib/utils/GLBLoader'
 import { getAluminumMaterial } from '@/lib/materials/frameMaterials'
 import type { TentSpecs } from '@/types'
 
@@ -33,8 +33,7 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 		const controller = new AbortController()
 		abortRef.current = controller
 
-		// Clear stale bounds from previous loads
-		clearBoundsCache()
+		// NOTE: bounds cache is cleared by the parent frame on specs change.
 
 		const root = new TransformNode('baseplates-root', scene)
 		const allDisposables: (Mesh | TransformNode)[] = [root]
@@ -92,26 +91,33 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 				// Uniform scaling to preserve the real scanned shape.
 				const bp = specs.baseplate
 				template.computeWorldMatrix(true)
-				const rawBounds = measureWorldBounds(templateMeshes)
+				const rawBounds = measureWorldBounds(
+					templateMeshes,
+					`baseplates-raw-${bp.width}-${bp.height}`,
+				)
+				let uniformScale = 1
 				if (rawBounds.size.x > 0) {
-					const uniformScale = bp.width / rawBounds.size.x
+					uniformScale = bp.width / rawBounds.size.x
 					template.scaling.setAll(uniformScale)
 				}
 
 				// Compute center offset after rotation + scaling.
-				// The baseplate model may not be perfectly symmetric, so after
-				// rotation the bounding-box center can shift from the origin.
-				// We compensate in the thin instance positions (not mesh positions,
-				// which get reset to identity before instancing).
-				template.computeWorldMatrix(true)
-				const scaledBounds = measureWorldBounds(templateMeshes)
-				const centerOffsetX = (scaledBounds.min.x + scaledBounds.max.x) / 2
-				const centerOffsetZ = (scaledBounds.min.z + scaledBounds.max.z) / 2
+				// Since the scaling is uniform and bounds are linear in scale, we can
+				// derive the scaled center directly from the raw bounds — no need to
+				// re-walk world matrices.
+				const centerOffsetX = ((rawBounds.min.x + rawBounds.max.x) / 2) * uniformScale
+				const centerOffsetZ = ((rawBounds.min.z + rawBounds.max.z) / 2) * uniformScale
 
 				// Find ground offset (Y only)
-				const groundY = -scaledBounds.min.y
+				const groundY = -rawBounds.min.y * uniformScale
 
 				// ── Build thin instance transforms ──
+				// Hoist rotation/scaling refs out of the loop — InstanceTransform
+				// only reads these to compose its matrix, so a single shared Vector3
+				// per axis is safe and avoids O(N) allocations.
+				const sharedRotation = template.rotation.clone()
+				const sharedScaling = template.scaling.clone()
+
 				// Use specs.halfWidth for consistency with other components
 				const halfWidth = specs.halfWidth
 				const totalLength = numBays * specs.bayDistance
@@ -128,8 +134,8 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 								groundY,
 								z - centerOffsetZ,
 							),
-							rotation: template.rotation.clone(),
-							scaling: template.scaling.clone(),
+							rotation: sharedRotation,
+							scaling: sharedScaling,
 						})
 					}
 				}
@@ -147,8 +153,8 @@ export const Baseplates: FC<BaseplatesProps> = memo(({ numBays, specs, enabled, 
 									groundY,
 									gableZ - centerOffsetZ,
 								),
-								rotation: template.rotation.clone(),
-								scaling: template.scaling.clone(),
+								rotation: sharedRotation,
+								scaling: sharedScaling,
 							})
 						}
 					}
