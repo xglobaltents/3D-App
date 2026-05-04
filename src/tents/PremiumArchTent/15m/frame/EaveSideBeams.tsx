@@ -25,8 +25,8 @@ const FILE = 'eave-side-beam.glb'
 const MODEL_ROT_QUAT = Quaternion.FromEulerAngles(0, Math.PI, 0)
 const PART_ROT_LEFT = Quaternion.FromEulerAngles(0, 0, -Math.PI)
 const PART_ROT_RIGHT = Quaternion.FromEulerAngles(0, Math.PI, -Math.PI)
-const EAVE_SIDE_BEAM_OUTWARD_OFFSET = 0.19
-const EAVE_SIDE_BEAM_EAVE_OFFSET = 0.08
+const EAVE_SIDE_BEAM_OUTWARD_OFFSET = 0.14
+const EAVE_SIDE_BEAM_EAVE_OFFSET = 0.03
 
 interface EaveSideBeamsProps {
   numBays: number
